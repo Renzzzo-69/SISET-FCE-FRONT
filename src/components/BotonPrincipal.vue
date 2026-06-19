@@ -11,7 +11,8 @@ defineProps({
     {{ cargando ? textoCargando : texto }}
   </button>
 </template>
-
+<!-- Holi -->
+<!-- /* Holaaa */ -->
 <style scoped>
 button {
   width: 100%;
