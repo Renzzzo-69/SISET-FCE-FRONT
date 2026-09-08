@@ -1,18 +1,49 @@
-<script setup>
-// Aquí irá la lógica de tu panel principal más adelante
+<script setup lang="ts">
+import { computed } from 'vue'
+
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
+const roles = computed(() => auth.usuario?.roles ?? [])
 </script>
 
 <template>
-  <div class="panel-container">
-    <h1>Bienvenido al Panel Principal</h1>
-    <p>Has iniciado sesión correctamente.</p>
-  </div>
+  <section>
+    <h1>Dashboard</h1>
+    <p class="intro">Bienvenido, {{ auth.usuario?.correo_electronico }}.</p>
+
+    <div class="card">
+      <h2>Sesión actual</h2>
+      <p v-if="roles.length">Roles activos: {{ roles.map((rol) => rol.nombre).join(', ') }}</p>
+      <p v-else>No tiene roles activos asignados.</p>
+    </div>
+  </section>
 </template>
 
 <style scoped>
-.panel-container {
-  padding: 2rem;
-  text-align: center;
-  font-family: sans-serif;
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+.intro {
+  color: #6b7280;
+}
+
+.card {
+  max-width: 560px;
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  background: #fff;
+  border-radius: 6px;
+}
+
+.card h2 {
+  margin-bottom: 0.5rem;
+}
+
+.card p {
+  margin-bottom: 0;
 }
 </style>

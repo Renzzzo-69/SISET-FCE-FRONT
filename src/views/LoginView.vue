@@ -1,115 +1,108 @@
-<script setup>
-import { ref } from 'vue';
-import { useRouter } from 'vue-router';
-import api from '../services/api';
+<script setup lang="ts">
+import { ref } from 'vue'
+import axios from 'axios'
+import { useRoute, useRouter } from 'vue-router'
 
-// 1. Importamos nuestros nuevos componentes reutilizables
-import InputTexto from '../components/InputTexto.vue';
-import BotonPrincipal from '../components/BotonPrincipal.vue';
+import BotonPrincipal from '@/components/BotonPrincipal.vue'
+import InputTexto from '@/components/InputTexto.vue'
+import { useAuthStore } from '@/stores/auth'
 
-const router = useRouter();
+const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 
 const credenciales = ref({
   correo_electronico: '',
-  password: ''
-});
+  password: '',
+})
+const cargando = ref(false)
+const mensajeError = ref('')
 
-const cargando = ref(false);
-const mensajeError = ref('');
-
-const iniciarSesion = async () => {
-  mensajeError.value = '';
-  cargando.value = true;
+async function iniciarSesion() {
+  mensajeError.value = ''
+  cargando.value = true
 
   try {
-    const respuesta = await api.post('/login', credenciales.value);
-    const token = respuesta.data.token; 
-    
-    if (token) {
-      localStorage.setItem('token', token);
-      console.log('¡Login exitoso! Token guardado.');
-      router.push('/panel'); 
-    }
+    await auth.iniciarSesion(credenciales.value)
 
+    const redirect = route.query.redirect
+    await router.replace(
+      typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//')
+        ? redirect
+        : { name: 'dashboard' },
+    )
   } catch (error) {
-    console.error("Error en el login:", error);
-    mensajeError.value = error.response?.data?.message || 'Credenciales incorrectas o error de conexión.';
+    mensajeError.value =
+      axios.isAxiosError(error) && error.response?.data?.message
+        ? error.response.data.message
+        : error instanceof Error
+          ? error.message
+          : 'No se pudo iniciar sesión.'
   } finally {
-    cargando.value = false;
+    cargando.value = false
   }
-};
+}
 </script>
 
 <template>
-  <div class="login-container">
-    <div class="login-card">
-      <h2>Iniciar Sesión</h2>
+  <main class="login-container">
+    <section class="login-card" aria-labelledby="login-title">
+      <h1 id="login-title">Iniciar sesión</h1>
       <p class="subtitle">Sistema de Seguimiento de Tesis - FCE</p>
 
       <form @submit.prevent="iniciarSesion">
-        
-        <InputTexto 
-          label="Correo Electrónico" 
+        <InputTexto
+          v-model="credenciales.correo_electronico"
+          label="Correo electrónico"
           tipo="email"
           placeholder="usuario@ejemplo.com"
-          v-model="credenciales.correo_electronico" 
         />
 
-        <InputTexto 
-          label="Contraseña" 
+        <InputTexto
+          v-model="credenciales.password"
+          label="Contraseña"
           tipo="password"
           placeholder="********"
-          v-model="credenciales.password" 
         />
 
-        <p v-if="mensajeError" class="error-text">{{ mensajeError }}</p>
+        <p v-if="mensajeError" class="error-text" role="alert">{{ mensajeError }}</p>
 
-        <BotonPrincipal 
-          texto="Ingresar" 
-          textoCargando="Ingresando..."
-          :cargando="cargando" 
-        />
-
+        <BotonPrincipal texto="Ingresar" texto-cargando="Ingresando…" :cargando="cargando" />
       </form>
-    </div>
-  </div>
+    </section>
+  </main>
 </template>
 
 <style scoped>
-/* Solo conservamos los estilos del contenedor y textos, 
-   lo demás ya vive en los componentes */
 .login-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100vh;
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 1rem;
 }
 
 .login-card {
-  background: white;
+  width: min(100%, 400px);
   padding: 2rem;
+  background: white;
   border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-  width: 100%;
-  max-width: 400px;
+  box-shadow: 0 4px 6px rgb(0 0 0 / 10%);
 }
 
-h2 {
-  margin-top: 0;
-  margin-bottom: 5px;
+h1 {
+  margin: 0 0 0.35rem;
   color: #333;
 }
 
 .subtitle {
+  margin: 0 0 1.25rem;
   color: #666;
   font-size: 0.9rem;
-  margin-bottom: 20px;
 }
 
 .error-text {
-  color: #d32f2f;
+  margin: 0 0 0.75rem;
+  color: #b91c1c;
   font-size: 0.85rem;
-  margin-bottom: 10px;
-  text-align: left;
 }
 </style>

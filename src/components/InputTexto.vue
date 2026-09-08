@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
 // defineProps recibe las configuraciones visuales del input
 defineProps({
   label: { type: String, required: true },
