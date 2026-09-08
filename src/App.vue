@@ -1,6 +1,20 @@
-<script setup>
-// Importamos el componente especial de Vue Router
-import { RouterView } from 'vue-router';
+<script setup lang="ts">
+import { watch } from 'vue'
+import { RouterView, useRouter } from 'vue-router'
+
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
+const router = useRouter()
+
+watch(
+  () => auth.autenticado,
+  (autenticado) => {
+    if (!autenticado && router.currentRoute.value.meta.requiereAutenticacion) {
+      router.replace({ name: 'login' })
+    }
+  },
+)
 </script>
 
 <template>
@@ -8,9 +22,19 @@ import { RouterView } from 'vue-router';
 </template>
 
 <style>
-/* Estilos globales básicos */
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  background-color: #f4f7f6;
+  color: #1f2937;
+  font-family: Arial, sans-serif;
+  background: #f4f7f6;
+}
+
+button,
+input {
+  font: inherit;
 }
 </style>

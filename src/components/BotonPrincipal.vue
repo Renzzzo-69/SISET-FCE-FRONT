@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
 defineProps({
   texto: { type: String, required: true },
   textoCargando: { type: String, default: 'Cargando...' },
