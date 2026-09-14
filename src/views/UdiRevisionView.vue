@@ -23,7 +23,7 @@ const router = useRouter()
 const detalle = ref<ExpedienteDetalle | null>(null)
 const revision = ref<RevisionDocumentariaConsulta | null>(null)
 const cargando = ref(true)
-const accionEnCurso = ref<'recepcion' | 'iniciar' | null>(null)
+const accionEnCurso = ref<'recepcion' | 'iniciar' | 'subsanacion' | null>(null)
 const operacionEnCurso = ref<string | null>(null)
 const descargando = ref<string | null>(null)
 const mensajeError = ref('')
@@ -39,6 +39,16 @@ const puedeEvaluar = computed(
     detalle.value?.etapa_actual?.codigo === 'revision_requisitos_documentarios' &&
     detalle.value.estado_actual?.codigo === 'en_revision' &&
     revision.value?.revision != null,
+)
+const puedeSolicitarSubsanacion = computed(
+  () =>
+    detalle.value?.etapa_actual?.codigo === 'revision_requisitos_documentarios' &&
+    detalle.value.estado_actual?.codigo === 'observado' &&
+    (revision.value?.revision?.requisitos.some((requisito) =>
+      requisito.evaluacion?.observaciones.some(
+        (observacion) => Boolean(observacion.es_subsanable) && observacion.estado === 'pendiente',
+      ),
+    ) ?? false),
 )
 
 function nombreParticipante(participante: ParticipanteExpediente | null) {
@@ -233,6 +243,24 @@ async function ejecutarAccion(accion: 'recepcion' | 'iniciar') {
   }
 }
 
+async function solicitarSubsanacion() {
+  if (!Number.isInteger(idExpediente.value) || idExpediente.value < 1 || accionEnCurso.value !== null) return
+
+  accionEnCurso.value = 'subsanacion'
+  mensajeError.value = ''
+  mensajeAccion.value = ''
+
+  try {
+    await api.post(`/expedientes/${idExpediente.value}/revision-documentaria/pendiente-subsanacion`)
+    mensajeAccion.value = 'Expediente marcado como pendiente de subsanación.'
+    await cargarInformacion()
+  } catch (error) {
+    mensajeError.value = mensajeDesdeError(error, 'No se pudo solicitar la subsanación.')
+  } finally {
+    accionEnCurso.value = null
+  }
+}
+
 async function descargarDocumento(ruta: string, nombre: string, clave: string) {
   mensajeError.value = ''
   descargando.value = clave
@@ -314,6 +342,14 @@ onMounted(cargarInformacion)
             @click="ejecutarAccion('iniciar')"
           >
             {{ accionEnCurso === 'iniciar' ? 'Iniciando…' : 'Iniciar revisión' }}
+          </button>
+          <button
+            v-else-if="puedeSolicitarSubsanacion"
+            type="button"
+            :disabled="accionEnCurso !== null || operacionEnCurso !== null"
+            @click="solicitarSubsanacion"
+          >
+            {{ accionEnCurso === 'subsanacion' ? 'Solicitando…' : 'Solicitar subsanación' }}
           </button>
           <p v-else class="muted">No hay acciones de revisión disponibles para el estado actual.</p>
         </section>
