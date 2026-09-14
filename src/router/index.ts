@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import AuthenticatedLayout from '@/layouts/AuthenticatedLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import CrearExpedienteView from '@/views/CrearExpedienteView.vue'
+import ExpedienteDetalleView from '@/views/ExpedienteDetalleView.vue'
 import ExpedientesView from '@/views/ExpedientesView.vue'
 import LoginView from '@/views/LoginView.vue'
 import PanelView from '@/views/PanelView.vue'
@@ -39,6 +40,11 @@ const router = createRouter({
           path: 'expedientes/nuevo',
           name: 'expedientes-nuevo',
           component: CrearExpedienteView,
+        },
+        {
+          path: 'expedientes/:id',
+          name: 'expedientes-detalle',
+          component: ExpedienteDetalleView,
         },
       ],
     },
