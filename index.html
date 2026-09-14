@@ -4,7 +4,37 @@
     <meta charset="UTF-8">
     <link rel="icon" href="/favicon.ico">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vite App</title>
+    <title>SISET-FCE - Decanatura</title>
+    <!-- Tailwind (CDN) + Fonts used by the provided Decanatura design -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    <script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              'sidebar-bg': '#283a70',
+              'primary': '#0f2359',
+              'secondary': '#006b5c',
+              'background': '#f9f9ff',
+              'surface-container-lowest': '#ffffff',
+              'surface-variant': '#e2e2e8',
+              'status-error': '#ba1a1a',
+              'status-success': '#006b5c',
+              'primary-container': '#283a70',
+              'primary-fixed-dim': '#b5c4ff'
+            },
+            borderRadius: { lg: '0.25rem', xl: '0.5rem', full: '0.75rem' }
+          }
+        }
+      }
+    </script>
+    <style>
+      .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+      body { background-color: #f9f9ff; }
+    </style>
   </head>
   <body>
     <div id="app"></div>
