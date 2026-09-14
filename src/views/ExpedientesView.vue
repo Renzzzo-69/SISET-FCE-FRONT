@@ -67,6 +67,7 @@ onMounted(cargarExpedientes)
             <th>Etapa actual</th>
             <th>Estado actual</th>
             <th>Cumple</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
@@ -76,6 +77,14 @@ onMounted(cargarExpedientes)
             <td>{{ expediente.id_etapa_actual }}</td>
             <td>{{ expediente.id_estado_actual }}</td>
             <td>{{ expediente.cumple ? 'Sí' : 'No' }}</td>
+            <td>
+              <button
+                type="button"
+                @click="router.push({ name: 'expedientes-detalle', params: { id: expediente.id_expediente } })"
+              >
+                Ver detalle
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>

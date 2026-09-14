@@ -37,7 +37,7 @@ export interface Expediente {
   id_co_tesista: number | null // Tesista 2; clave JSON heredada del backend
   id_etapa_actual: number
   id_estado_actual: number
-  solicitud_adjunta: string
+  solicitud_adjunta: string | null
   version: number
   cumple: 0 | 1
   estado: 0 | 1
@@ -48,4 +48,75 @@ export interface CandidatoTesista {
   apellido_paterno: string
   apellido_materno: string
   nombres: string
+}
+
+export interface ParticipanteExpediente {
+  id_alumno: number
+  apellido_paterno: string
+  apellido_materno: string
+  nombres: string
+}
+
+export interface EtapaExpedienteActual {
+  id_etapa_expediente: number
+  codigo: string
+  nombre: string
+}
+
+export interface EstadoExpedienteActual {
+  id_estado_expediente: number
+  codigo: string
+  nombre: string
+}
+
+export interface InformeExpediente {
+  id_informe_proyecto_tesis: number
+  version: number
+  es_tesis: 0 | 1
+  titulo: string
+  turnitin: number | null
+  archivo_adjunto: string | null
+  estado: 0 | 1
+}
+
+export interface EventoHistorialExpediente {
+  id_historial: number
+  fecha_cambio: string
+  accion_realizada: string
+  etapa_anterior: EtapaExpedienteActual | null
+  etapa_nueva: EtapaExpedienteActual | null
+  estado_anterior: EstadoExpedienteActual | null
+  estado_nuevo: EstadoExpedienteActual | null
+  responsable: {
+    id_usuario: number
+    nombre: string | null
+  } | null
+}
+
+export interface ResumenRevisionDocumentaria {
+  id_revision_documentaria: number
+  numero_ronda: number
+  fecha_inicio: string | null
+  fecha_cierre: string | null
+  resultado_final: string | null
+}
+
+export interface ExpedienteDetalle {
+  id_expediente: number
+  cod_expediente: number
+  solicitud_adjunta: string | null
+  version: number
+  cumple: 0 | 1
+  estado: 0 | 1
+  tesista_1: ParticipanteExpediente | null
+  tesista_2: ParticipanteExpediente | null
+  etapa_actual: EtapaExpedienteActual | null
+  estado_actual: EstadoExpedienteActual | null
+  informes: InformeExpediente[]
+  historial: EventoHistorialExpediente[]
+  revision_documentaria_reciente: ResumenRevisionDocumentaria | null
+}
+
+export interface ExpedienteDetalleResponse {
+  data: ExpedienteDetalle | null
 }

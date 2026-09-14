@@ -37,4 +37,26 @@ api.interceptors.response.use(
   },
 )
 
+export async function descargarDocumentoPrivado(ruta: string, nombre: string) {
+  const baseApi = new URL(import.meta.env.VITE_API_URL, window.location.origin)
+  const url = new URL(ruta, baseApi.origin)
+  url.searchParams.set('download', '1')
+
+  const { data } = await api.get<Blob>(url.toString(), { responseType: 'blob' })
+  const urlTemporal = URL.createObjectURL(data)
+  const enlace = document.createElement('a')
+  const extension =
+    data.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ? 'docx'
+      : 'pdf'
+
+  enlace.href = urlTemporal
+  enlace.download = `${nombre}.${extension}`
+  document.body.append(enlace)
+  enlace.click()
+  enlace.remove()
+
+  window.setTimeout(() => URL.revokeObjectURL(urlTemporal), 0)
+}
+
 export default api
