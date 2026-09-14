@@ -124,12 +124,24 @@ export interface ObservacionDocumentaria {
   subsanaciones: SubsanacionDocumentaria[]
 }
 
+export type ResultadoEvaluacionRequisito = 'conforme' | 'observado' | 'no_presentado'
+
 export interface EvaluacionRequisitoDocumentario {
   id_evaluacion_requisito: number
-  resultado: 'conforme' | 'observado' | 'no_presentado'
+  resultado: ResultadoEvaluacionRequisito
   comentario: string | null
   fecha_evaluacion: string
   observaciones: ObservacionDocumentaria[]
+}
+
+export interface EvaluarRequisitoPayload {
+  resultado: ResultadoEvaluacionRequisito
+  comentario: string | null
+}
+
+export interface RegistrarObservacionPayload {
+  detalle: string
+  es_subsanable: boolean
 }
 
 export interface RequisitoRevisionDocumentaria {
