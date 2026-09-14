@@ -10,12 +10,16 @@ import type {
   EtapaExpedienteActual,
   ExpedienteDetalle,
   ExpedienteDetalleResponse,
+  ObservacionDocumentaria,
   ParticipanteExpediente,
   RegistrarObservacionPayload,
   RequisitoRevisionDocumentaria,
+  RevisarSubsanacionPayload,
   RevisionDocumentariaConsulta,
   RevisionDocumentariaResponse,
   ResultadoEvaluacionRequisito,
+  ResultadoRevisionSubsanacion,
+  SubsanacionDocumentaria,
 } from '@/types/api'
 
 const route = useRoute()
@@ -35,6 +39,12 @@ const idExpediente = computed(() => Number(route.params.id))
 const puedeRecepcionar = computed(() => detalle.value?.estado_actual?.codigo === 'pendiente_derivacion')
 const puedeIniciar = computed(() => detalle.value?.estado_actual?.codigo === 'derivado_udi')
 const puedeEvaluar = computed(
+  () =>
+    detalle.value?.etapa_actual?.codigo === 'revision_requisitos_documentarios' &&
+    detalle.value.estado_actual?.codigo === 'en_revision' &&
+    revision.value?.revision != null,
+)
+const puedeRevisarSubsanaciones = computed(
   () =>
     detalle.value?.etapa_actual?.codigo === 'revision_requisitos_documentarios' &&
     detalle.value.estado_actual?.codigo === 'en_revision' &&
@@ -127,6 +137,10 @@ function puedeRegistrarObservacion(requisito: RequisitoRevisionDocumentaria) {
   return puedeEvaluar.value && (resultado === 'observado' || resultado === 'no_presentado')
 }
 
+function puedeRevisarSubsanacion(observacion: ObservacionDocumentaria, subsanacion: SubsanacionDocumentaria) {
+  return puedeRevisarSubsanaciones.value && Boolean(observacion.es_subsanable) && subsanacion.resultado === null
+}
+
 async function cargarInformacion() {
   detalle.value = null
   revision.value = null
@@ -217,6 +231,42 @@ async function registrarObservacion(requisito: RequisitoRevisionDocumentaria) {
     await cargarInformacion()
   } catch (error) {
     mensajeError.value = mensajeDesdeError(error, 'No se pudo registrar la observación.')
+  } finally {
+    operacionEnCurso.value = null
+  }
+}
+
+async function revisarSubsanacion(
+  observacion: ObservacionDocumentaria,
+  subsanacion: SubsanacionDocumentaria,
+  resultado: ResultadoRevisionSubsanacion,
+) {
+  if (
+    !Number.isInteger(idExpediente.value) ||
+    idExpediente.value < 1 ||
+    operacionEnCurso.value !== null ||
+    !puedeRevisarSubsanacion(observacion, subsanacion)
+  ) {
+    return
+  }
+
+  const clave = `subsanacion-${subsanacion.id_subsanacion_documentaria}`
+  operacionEnCurso.value = clave
+  mensajeError.value = ''
+
+  try {
+    const payload: RevisarSubsanacionPayload = { resultado }
+    await api.put(
+      `/expedientes/${idExpediente.value}/revision-documentaria/subsanaciones/${subsanacion.id_subsanacion_documentaria}`,
+      payload,
+    )
+    confirmaciones.value[clave] =
+      resultado === 'aceptada'
+        ? 'Subsanación aceptada. La observación fue cerrada.'
+        : 'Subsanación rechazada. La observación quedó pendiente; solicite una nueva subsanación para habilitar otro intento.'
+    await cargarInformacion()
+  } catch (error) {
+    mensajeError.value = mensajeDesdeError(error, 'No se pudo revisar la subsanación.')
   } finally {
     operacionEnCurso.value = null
   }
@@ -466,9 +516,55 @@ onMounted(cargarInformacion)
 
                   <ul v-if="observacion.subsanaciones.length" class="subsanations">
                     <li v-for="subsanacion in observacion.subsanaciones" :key="subsanacion.id_subsanacion_documentaria">
-                      <span>Subsanación {{ subsanacion.numero_intento }} · {{ subsanacion.resultado ?? 'Pendiente' }}</span>
-                      <p v-if="subsanacion.detalle">{{ subsanacion.detalle }}</p>
-                      <p v-if="subsanacion.archivo_adjunto" class="muted">Archivo adjunto registrado.</p>
+                      <strong>Intento {{ subsanacion.numero_intento }}</strong>
+                      <p>Observación relacionada: {{ observacion.detalle }}</p>
+                      <p>Resultado: {{ subsanacion.resultado ?? 'Pendiente de revisión' }}</p>
+                      <p>Presentado: {{ fechaTexto(subsanacion.fecha_presentacion) }}</p>
+                      <p v-if="subsanacion.detalle">Detalle del Tesista: {{ subsanacion.detalle }}</p>
+                      <p v-else class="muted">El Tesista no registró un detalle adicional.</p>
+                      <button
+                        v-if="subsanacion.archivo_adjunto"
+                        type="button"
+                        :disabled="descargando === `subsanacion-${subsanacion.id_subsanacion_documentaria}`"
+                        @click="
+                          descargarDocumento(
+                            subsanacion.archivo_adjunto,
+                            `subsanacion-${subsanacion.id_subsanacion_documentaria}`,
+                            `subsanacion-${subsanacion.id_subsanacion_documentaria}`,
+                          )
+                        "
+                      >
+                        {{
+                          descargando === `subsanacion-${subsanacion.id_subsanacion_documentaria}`
+                            ? 'Descargando…'
+                            : 'Descargar archivo adjunto'
+                        }}
+                      </button>
+                      <p v-else class="muted">No hay archivo adjunto disponible.</p>
+                      <p
+                        v-if="confirmaciones[`subsanacion-${subsanacion.id_subsanacion_documentaria}`]"
+                        class="inline-success"
+                        role="status"
+                      >
+                        {{ confirmaciones[`subsanacion-${subsanacion.id_subsanacion_documentaria}`] }}
+                      </p>
+                      <div v-if="puedeRevisarSubsanacion(observacion, subsanacion)" class="subsanation-actions">
+                        <button
+                          type="button"
+                          :disabled="operacionEnCurso !== null"
+                          @click="revisarSubsanacion(observacion, subsanacion, 'aceptada')"
+                        >
+                          {{ operacionEnCurso === `subsanacion-${subsanacion.id_subsanacion_documentaria}` ? 'Guardando…' : 'Aceptar' }}
+                        </button>
+                        <button
+                          type="button"
+                          class="reject"
+                          :disabled="operacionEnCurso !== null"
+                          @click="revisarSubsanacion(observacion, subsanacion, 'rechazada')"
+                        >
+                          Rechazar
+                        </button>
+                      </div>
                     </li>
                   </ul>
                   <p v-else class="muted">No hay subsanaciones presentadas.</p>
@@ -651,6 +747,16 @@ legend {
 .secondary {
   color: #1f2937;
   background: #e5e7eb;
+}
+
+.reject {
+  background: #b91c1c;
+}
+
+.subsanation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .error,

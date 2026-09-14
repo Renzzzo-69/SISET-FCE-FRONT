@@ -105,13 +105,19 @@ export interface ResumenRevisionDocumentaria {
   resultado_final: string | null
 }
 
+export type ResultadoRevisionSubsanacion = 'aceptada' | 'rechazada'
+
+export interface RevisarSubsanacionPayload {
+  resultado: ResultadoRevisionSubsanacion
+}
+
 export interface SubsanacionDocumentaria {
   id_subsanacion_documentaria: number
   numero_intento: number
   detalle: string | null
   archivo_adjunto: string | null
   fecha_presentacion: string
-  resultado: 'aceptada' | 'rechazada' | null
+  resultado: ResultadoRevisionSubsanacion | null
   fecha_revision: string | null
 }
 
