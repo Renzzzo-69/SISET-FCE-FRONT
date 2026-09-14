@@ -120,3 +120,24 @@ export interface ExpedienteDetalle {
 export interface ExpedienteDetalleResponse {
   data: ExpedienteDetalle | null
 }
+
+export interface InformeTurnitin {
+  id_informe: number
+  id_expediente: number
+  cod_expediente: number
+  tipo: 'proyecto' | 'tesis'
+  version: number
+  titulo: string
+  turnitin: number | null
+  archivo_adjunto: string | null
+}
+
+export interface ActualizarTurnitinResponse {
+  mensaje: string
+  data: {
+    id_informe: number
+    id_expediente: number
+    version: number
+    turnitin: number
+  }
+}
