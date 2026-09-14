@@ -5,13 +5,17 @@ import { useRoute, useRouter } from 'vue-router'
 
 import api, { descargarDocumentoPrivado } from '@/services/api'
 import type {
+  EvaluarRequisitoPayload,
   EstadoExpedienteActual,
   EtapaExpedienteActual,
   ExpedienteDetalle,
   ExpedienteDetalleResponse,
   ParticipanteExpediente,
+  RegistrarObservacionPayload,
+  RequisitoRevisionDocumentaria,
   RevisionDocumentariaConsulta,
   RevisionDocumentariaResponse,
+  ResultadoEvaluacionRequisito,
 } from '@/types/api'
 
 const route = useRoute()
@@ -20,12 +24,22 @@ const detalle = ref<ExpedienteDetalle | null>(null)
 const revision = ref<RevisionDocumentariaConsulta | null>(null)
 const cargando = ref(true)
 const accionEnCurso = ref<'recepcion' | 'iniciar' | null>(null)
+const operacionEnCurso = ref<string | null>(null)
 const descargando = ref<string | null>(null)
 const mensajeError = ref('')
 const mensajeAccion = ref('')
+const confirmaciones = ref<Record<string, string>>({})
+const formulariosEvaluacion = ref<Record<number, { resultado: ResultadoEvaluacionRequisito | ''; comentario: string }>>({})
+const formulariosObservacion = ref<Record<number, { detalle: string; es_subsanable: boolean }>>({})
 const idExpediente = computed(() => Number(route.params.id))
 const puedeRecepcionar = computed(() => detalle.value?.estado_actual?.codigo === 'pendiente_derivacion')
 const puedeIniciar = computed(() => detalle.value?.estado_actual?.codigo === 'derivado_udi')
+const puedeEvaluar = computed(
+  () =>
+    detalle.value?.etapa_actual?.codigo === 'revision_requisitos_documentarios' &&
+    detalle.value.estado_actual?.codigo === 'en_revision' &&
+    revision.value?.revision != null,
+)
 
 function nombreParticipante(participante: ParticipanteExpediente | null) {
   return participante
@@ -71,6 +85,38 @@ function mensajeDesdeError(error: unknown, predeterminado: string) {
   }
 }
 
+function sincronizarFormularios(datos: RevisionDocumentariaConsulta) {
+  const requisitos = datos.revision?.requisitos ?? []
+
+  formulariosEvaluacion.value = Object.fromEntries(
+    requisitos.map((requisito) => [
+      requisito.id_requisito_documentario,
+      {
+        resultado: requisito.evaluacion?.resultado ?? '',
+        comentario: requisito.evaluacion?.comentario ?? '',
+      },
+    ]),
+  )
+  formulariosObservacion.value = Object.fromEntries(
+    requisitos
+      .filter((requisito) => requisito.evaluacion !== null)
+      .map((requisito) => [requisito.evaluacion!.id_evaluacion_requisito, { detalle: '', es_subsanable: true }]),
+  )
+}
+
+function formularioEvaluacion(idRequisito: number) {
+  return (formulariosEvaluacion.value[idRequisito] ??= { resultado: '', comentario: '' })
+}
+
+function formularioObservacion(idEvaluacion: number) {
+  return (formulariosObservacion.value[idEvaluacion] ??= { detalle: '', es_subsanable: true })
+}
+
+function puedeRegistrarObservacion(requisito: RequisitoRevisionDocumentaria) {
+  const resultado = requisito.evaluacion?.resultado
+  return puedeEvaluar.value && (resultado === 'observado' || resultado === 'no_presentado')
+}
+
 async function cargarInformacion() {
   detalle.value = null
   revision.value = null
@@ -91,10 +137,78 @@ async function cargarInformacion() {
     ])
     detalle.value = detalleRespuesta.data.data ?? null
     revision.value = revisionRespuesta.data.data
+    sincronizarFormularios(revisionRespuesta.data.data)
   } catch (error) {
     mensajeError.value = mensajeDesdeError(error, 'No se pudo cargar la revisión documentaria.')
   } finally {
     cargando.value = false
+  }
+}
+
+async function guardarEvaluacion(requisito: RequisitoRevisionDocumentaria) {
+  if (operacionEnCurso.value !== null) return
+
+  const formulario = formulariosEvaluacion.value[requisito.id_requisito_documentario]
+
+  if (!formulario || formulario.resultado === '') {
+    mensajeError.value = 'Seleccione un resultado para evaluar el requisito.'
+    return
+  }
+
+  const clave = `evaluacion-${requisito.id_requisito_documentario}`
+  operacionEnCurso.value = clave
+  mensajeError.value = ''
+
+  try {
+    const payload: EvaluarRequisitoPayload = {
+      resultado: formulario.resultado,
+      comentario: formulario.comentario.trim() || null,
+    }
+    await api.put(
+      `/expedientes/${idExpediente.value}/revision-documentaria/requisitos/${requisito.id_requisito_documentario}`,
+      payload,
+    )
+    confirmaciones.value[clave] = 'Evaluación guardada correctamente.'
+    await cargarInformacion()
+  } catch (error) {
+    mensajeError.value = mensajeDesdeError(error, 'No se pudo guardar la evaluación del requisito.')
+  } finally {
+    operacionEnCurso.value = null
+  }
+}
+
+async function registrarObservacion(requisito: RequisitoRevisionDocumentaria) {
+  if (operacionEnCurso.value !== null) return
+
+  const evaluacion = requisito.evaluacion
+  if (!evaluacion) return
+
+  const formulario = formulariosObservacion.value[evaluacion.id_evaluacion_requisito]
+
+  if (!formulario || formulario.detalle.trim() === '') {
+    mensajeError.value = 'Ingrese el detalle de la observación.'
+    return
+  }
+
+  const clave = `observacion-${evaluacion.id_evaluacion_requisito}`
+  operacionEnCurso.value = clave
+  mensajeError.value = ''
+
+  try {
+    const payload: RegistrarObservacionPayload = {
+      detalle: formulario.detalle.trim(),
+      es_subsanable: formulario.es_subsanable,
+    }
+    await api.post(
+      `/expedientes/${idExpediente.value}/revision-documentaria/evaluaciones/${evaluacion.id_evaluacion_requisito}/observaciones`,
+      payload,
+    )
+    confirmaciones.value[clave] = 'Observación registrada correctamente.'
+    await cargarInformacion()
+  } catch (error) {
+    mensajeError.value = mensajeDesdeError(error, 'No se pudo registrar la observación.')
+  } finally {
+    operacionEnCurso.value = null
   }
 }
 
@@ -266,12 +380,45 @@ onMounted(cargarInformacion)
               <p v-if="requisito.descripcion" class="muted">{{ requisito.descripcion }}</p>
             </div>
 
+            <form v-if="puedeEvaluar" class="review-form" @submit.prevent="guardarEvaluacion(requisito)">
+              <label>
+                Resultado
+                <select v-model="formularioEvaluacion(requisito.id_requisito_documentario).resultado" :disabled="operacionEnCurso !== null" required>
+                  <option value="">Seleccione un resultado</option>
+                  <option value="conforme">Conforme</option>
+                  <option value="observado">Observado</option>
+                  <option value="no_presentado">No presentado</option>
+                </select>
+              </label>
+              <label>
+                Comentario (opcional)
+                <textarea
+                  v-model="formularioEvaluacion(requisito.id_requisito_documentario).comentario"
+                  :disabled="operacionEnCurso !== null"
+                  rows="3"
+                ></textarea>
+              </label>
+              <button type="submit" :disabled="operacionEnCurso !== null">
+                {{ operacionEnCurso === `evaluacion-${requisito.id_requisito_documentario}` ? 'Guardando…' : 'Guardar evaluación' }}
+              </button>
+            </form>
+            <p v-if="confirmaciones[`evaluacion-${requisito.id_requisito_documentario}`]" class="inline-success" role="status">
+              {{ confirmaciones[`evaluacion-${requisito.id_requisito_documentario}`] }}
+            </p>
+
             <template v-if="requisito.evaluacion">
               <p>
                 Evaluación: {{ requisito.evaluacion.resultado }} ·
                 {{ fechaTexto(requisito.evaluacion.fecha_evaluacion) }}
               </p>
               <p v-if="requisito.evaluacion.comentario">Comentario: {{ requisito.evaluacion.comentario }}</p>
+              <p
+                v-if="confirmaciones[`observacion-${requisito.evaluacion.id_evaluacion_requisito}`]"
+                class="inline-success"
+                role="status"
+              >
+                {{ confirmaciones[`observacion-${requisito.evaluacion.id_evaluacion_requisito}`] }}
+              </p>
 
               <ul v-if="requisito.evaluacion.observaciones.length" class="observations">
                 <li v-for="observacion in requisito.evaluacion.observaciones" :key="observacion.id_observacion_documentaria">
@@ -292,6 +439,46 @@ onMounted(cargarInformacion)
                 </li>
               </ul>
               <p v-else class="muted">Sin observaciones.</p>
+
+              <form v-if="puedeRegistrarObservacion(requisito)" class="review-form" @submit.prevent="registrarObservacion(requisito)">
+                <label>
+                  Detalle de la observación
+                  <textarea
+                    v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).detalle"
+                    :disabled="operacionEnCurso !== null"
+                    rows="3"
+                    required
+                  ></textarea>
+                </label>
+                <fieldset :disabled="operacionEnCurso !== null">
+                  <legend>Clasificación</legend>
+                  <label>
+                    <input
+                      v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).es_subsanable"
+                      type="radio"
+                      :name="`subsanable-${requisito.evaluacion.id_evaluacion_requisito}`"
+                      :value="true"
+                    >
+                    Subsanable
+                  </label>
+                  <label>
+                    <input
+                      v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).es_subsanable"
+                      type="radio"
+                      :name="`subsanable-${requisito.evaluacion.id_evaluacion_requisito}`"
+                      :value="false"
+                    >
+                    No subsanable
+                  </label>
+                </fieldset>
+                <button type="submit" :disabled="operacionEnCurso !== null">
+                  {{
+                    operacionEnCurso === `observacion-${requisito.evaluacion.id_evaluacion_requisito}`
+                      ? 'Registrando…'
+                      : 'Registrar observación'
+                  }}
+                </button>
+              </form>
             </template>
             <p v-else class="muted">Sin evaluación registrada.</p>
           </li>
@@ -373,6 +560,56 @@ button {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
+}
+
+.review-form {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  margin-top: 0.75rem;
+  background: #f9fafb;
+  border-radius: 4px;
+}
+
+.review-form > label {
+  display: grid;
+  gap: 0.35rem;
+  color: #374151;
+}
+
+select,
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem;
+  border: 1px solid #9ca3af;
+  border-radius: 4px;
+  font: inherit;
+}
+
+fieldset {
+  display: flex;
+  gap: 1rem;
+  padding: 0;
+  border: 0;
+}
+
+fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+legend {
+  margin-bottom: 0.35rem;
+  color: #374151;
+}
+
+.inline-success {
+  padding: 0.65rem 0.8rem;
+  color: #047857;
+  background: #ecfdf5;
+  border-radius: 4px;
 }
 
 .secondary {
