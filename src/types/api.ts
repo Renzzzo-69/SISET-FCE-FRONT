@@ -8,6 +8,9 @@ export interface UsuarioActual {
   id_usuario: number
   correo_electronico: string
   estado: 0 | 1
+  alumno: {
+    id_alumno: number
+  } | null
   roles: RolActivo[]
 }
 
@@ -20,7 +23,7 @@ export interface LoginResponse {
   message: string
   token: string
   token_type: 'Bearer'
-  usuario: Omit<UsuarioActual, 'roles'>
+  usuario: Omit<UsuarioActual, 'alumno' | 'roles'>
 }
 
 export interface MeResponse {
@@ -40,22 +43,9 @@ export interface Expediente {
   estado: 0 | 1
 }
 
-export interface AlumnoActivo {
+export interface CandidatoTesista {
   id_alumno: number
-  id_usuario: number
   apellido_paterno: string
   apellido_materno: string
   nombres: string
-  estado: 0 | 1
-  usuario?: {
-    id_usuario: number
-  }
-}
-
-export interface CrearExpedientePayload {
-  cod_expediente: number
-  id_tesista: number // Tesista 1
-  id_co_tesista?: number // Tesista 2; clave JSON heredada del backend
-  solicitud_adjunta: string
-  version: number
 }

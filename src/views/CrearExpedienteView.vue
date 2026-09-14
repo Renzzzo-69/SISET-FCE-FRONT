@@ -1,55 +1,38 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
 
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
-import type { AlumnoActivo, CrearExpedientePayload, Expediente } from '@/types/api'
+import type { CandidatoTesista, Expediente } from '@/types/api'
 
 const auth = useAuthStore()
 const router = useRouter()
 
-const alumnos = ref<AlumnoActivo[]>([])
-const cargandoAlumnos = ref(false)
+const candidatos = ref<CandidatoTesista[]>([])
+const cargandoCandidatos = ref(false)
 const creando = ref(false)
 const mensajeError = ref('')
+const mensajeCandidatos = ref('')
 const errores = ref<Record<string, string>>({})
 const formulario = reactive({
   cod_expediente: null as number | null,
-  id_tesista_1: null as number | null,
-  incluirTesista2: false,
-  id_tesista_2: null as number | null,
-  solicitud_adjunta: '',
+  id_co_tesista: null as number | null,
+  solicitud_adjunta: null as File | null,
   version: 1 as number | null,
 })
 
 const puedeRegistrar = computed(() => auth.tieneRol('tesista'))
-const alumnoPropio = computed(() =>
-  alumnos.value.find(
-    (alumno) => alumno.id_usuario === auth.usuario?.id_usuario || alumno.usuario?.id_usuario === auth.usuario?.id_usuario,
-  ),
-)
-const alumnosParaTesista2 = computed(() =>
-  alumnos.value.filter((alumno) => alumno.id_alumno !== formulario.id_tesista_1),
-)
+const alumnoPropio = computed(() => auth.usuario?.alumno ?? null)
 
-watch(
-  () => formulario.incluirTesista2,
-  (incluido) => {
-    if (!incluido) {
-      formulario.id_tesista_2 = null
-    }
-  },
-)
-
-function nombreAlumno(alumno: AlumnoActivo) {
+function nombreAlumno(alumno: CandidatoTesista) {
   return [alumno.apellido_paterno, alumno.apellido_materno, alumno.nombres].filter(Boolean).join(' ')
 }
 
-function mensajeDesdeError(error: unknown) {
+function mensajeDesdeError(error: unknown, accion: string) {
   if (!axios.isAxiosError(error)) {
-    return 'No se pudo registrar el expediente.'
+    return `No se pudo ${accion}.`
   }
 
   if (error.response?.status === 401) {
@@ -57,10 +40,14 @@ function mensajeDesdeError(error: unknown) {
   }
 
   if (error.response?.status === 403) {
-    return 'No tiene autorización para registrar este expediente.'
+    return `No tiene autorización para ${accion}.`
   }
 
-  return error.response?.data?.message || 'No se pudo registrar el expediente.'
+  if (error.response?.status === 422) {
+    return 'Revise los campos marcados e intente nuevamente.'
+  }
+
+  return error.response?.data?.message || `No se pudo ${accion}.`
 }
 
 function asignarErroresDeValidacion(error: unknown) {
@@ -76,100 +63,106 @@ function asignarErroresDeValidacion(error: unknown) {
 
   errores.value = Object.fromEntries(
     Object.entries(erroresApi).map(([campo, mensajes]) => [
-      campo === 'id_tesista' ? 'id_tesista_1' : campo === 'id_co_tesista' ? 'id_tesista_2' : campo,
+      campo === 'id_tesista' ? 'alumno' : campo,
       mensajes[0] ?? 'Valor inválido.',
     ]),
   )
 }
 
+function seleccionarSolicitud(event: Event) {
+  const input = event.target as HTMLInputElement
+  formulario.solicitud_adjunta = input.files?.[0] ?? null
+}
+
 function validarFormulario() {
   const siguientes: Record<string, string> = {}
+  const archivo = formulario.solicitud_adjunta
 
   if (!Number.isInteger(formulario.cod_expediente)) {
     siguientes.cod_expediente = 'Ingrese un código entero.'
   }
 
-  if (!Number.isInteger(formulario.id_tesista_1)) {
-    siguientes.id_tesista_1 = 'Seleccione Tesista 1.'
+  if (alumnoPropio.value === null) {
+    siguientes.alumno = 'Su cuenta no tiene un perfil Alumno activo para registrar el expediente.'
   }
 
-  if (formulario.incluirTesista2) {
-    if (!Number.isInteger(formulario.id_tesista_2)) {
-      siguientes.id_tesista_2 = 'Seleccione Tesista 2 o desactive esta opción.'
-    } else if (formulario.id_tesista_2 === formulario.id_tesista_1) {
-      siguientes.id_tesista_2 = 'Tesista 2 debe ser distinto de Tesista 1.'
-    }
+  if (formulario.id_co_tesista !== null && !Number.isInteger(formulario.id_co_tesista)) {
+    siguientes.id_co_tesista = 'Seleccione un co-tesista válido.'
   }
 
-  if (!formulario.solicitud_adjunta.trim()) {
-    siguientes.solicitud_adjunta = 'Ingrese la referencia de la solicitud adjunta.'
+  if (archivo === null) {
+    siguientes.solicitud_adjunta = 'Adjunte la solicitud en formato PDF o DOCX.'
+  } else if (
+    !/\.(pdf|docx)$/i.test(archivo.name) ||
+    !['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(
+      archivo.type,
+    )
+  ) {
+    siguientes.solicitud_adjunta = 'La solicitud debe ser un archivo PDF o DOCX.'
+  } else if (archivo.size > 30 * 1024 * 1024) {
+    siguientes.solicitud_adjunta = 'La solicitud no puede superar 30 MiB.'
   }
 
   if (!Number.isInteger(formulario.version)) {
     siguientes.version = 'Ingrese una versión entera.'
   }
 
-  if (puedeRegistrar.value) {
-    if (!alumnoPropio.value) {
-      siguientes.id_tesista_1 = 'No se pudo identificar su alumno activo para registrar el expediente.'
-    } else if (
-      formulario.id_tesista_1 !== alumnoPropio.value.id_alumno &&
-      formulario.id_tesista_2 !== alumnoPropio.value.id_alumno
-    ) {
-      siguientes.id_tesista_1 = 'Debe participar como Tesista 1 o Tesista 2.'
-    }
-  }
-
   errores.value = siguientes
   return Object.keys(siguientes).length === 0
 }
 
-async function cargarAlumnos() {
-  cargandoAlumnos.value = true
-  mensajeError.value = ''
+async function cargarCandidatos() {
+  if (!puedeRegistrar.value || alumnoPropio.value === null) {
+    return
+  }
+
+  cargandoCandidatos.value = true
+  mensajeCandidatos.value = ''
 
   try {
-    const { data } = await api.get<AlumnoActivo[]>('/alumnos')
-    alumnos.value = data
+    const { data } = await api.get<CandidatoTesista[]>('/alumnos/candidatos-tesista')
+    candidatos.value = data
   } catch (error) {
-    mensajeError.value = mensajeDesdeError(error)
+    mensajeCandidatos.value = mensajeDesdeError(error, 'consultar los candidatos a co-tesista')
   } finally {
-    cargandoAlumnos.value = false
+    cargandoCandidatos.value = false
   }
 }
 
 async function registrarExpediente() {
   mensajeError.value = ''
 
-  if (!validarFormulario()) {
+  const alumno = alumnoPropio.value
+  const archivo = formulario.solicitud_adjunta
+
+  if (!validarFormulario() || alumno === null || archivo === null) {
     return
   }
 
-  const payload: CrearExpedientePayload = {
-    cod_expediente: formulario.cod_expediente as number,
-    id_tesista: formulario.id_tesista_1 as number,
-    solicitud_adjunta: formulario.solicitud_adjunta.trim(),
-    version: formulario.version as number,
-  }
+  const datos = new FormData()
+  datos.append('cod_expediente', String(formulario.cod_expediente))
+  datos.append('id_tesista', String(alumno.id_alumno))
+  datos.append('solicitud_adjunta', archivo)
+  datos.append('version', String(formulario.version))
 
-  if (formulario.incluirTesista2 && formulario.id_tesista_2 !== null) {
-    payload.id_co_tesista = formulario.id_tesista_2
+  if (formulario.id_co_tesista !== null) {
+    datos.append('id_co_tesista', String(formulario.id_co_tesista))
   }
 
   creando.value = true
 
   try {
-    await api.post<Expediente>('/expedientes', payload)
+    await api.post<Expediente>('/expedientes', datos)
     await router.push({ name: 'expedientes' })
   } catch (error) {
     asignarErroresDeValidacion(error)
-    mensajeError.value = mensajeDesdeError(error)
+    mensajeError.value = mensajeDesdeError(error, 'registrar el expediente')
   } finally {
     creando.value = false
   }
 }
 
-onMounted(cargarAlumnos)
+onMounted(cargarCandidatos)
 </script>
 
 <template>
@@ -184,18 +177,13 @@ onMounted(cargarAlumnos)
       </button>
     </div>
 
-    <p v-if="cargandoAlumnos" class="status">Cargando alumnos activos…</p>
-
-    <div v-else-if="mensajeError && !alumnos.length" class="error" role="alert">
-      <p>{{ mensajeError }}</p>
-      <button type="button" @click="cargarAlumnos">Reintentar</button>
-    </div>
-
-    <p v-else-if="!puedeRegistrar" class="error" role="alert">
+    <p v-if="!puedeRegistrar" class="error" role="alert">
       Su rol no puede registrar expedientes.
     </p>
 
-    <p v-else-if="!alumnos.length" class="status">No hay alumnos activos disponibles.</p>
+    <p v-else-if="alumnoPropio === null" class="error" role="alert">
+      Su cuenta no tiene un perfil Alumno activo para registrar el expediente.
+    </p>
 
     <form v-else class="formulario" @submit.prevent="registrarExpediente">
       <div v-if="mensajeError" class="error" role="alert">{{ mensajeError }}</div>
@@ -208,35 +196,32 @@ onMounted(cargarAlumnos)
 
       <label>
         Tesista 1
-        <select v-model.number="formulario.id_tesista_1" required>
-          <option :value="null" disabled>Seleccione un alumno</option>
-          <option v-for="alumno in alumnos" :key="alumno.id_alumno" :value="alumno.id_alumno">
+        <input :value="`Perfil autenticado (ID ${alumnoPropio.id_alumno})`" type="text" readonly />
+        <small v-if="errores.alumno" class="field-error">{{ errores.alumno }}</small>
+      </label>
+
+      <label>
+        Co-tesista (opcional)
+        <select v-model.number="formulario.id_co_tesista" :disabled="cargandoCandidatos">
+          <option :value="null">Sin co-tesista</option>
+          <option v-for="alumno in candidatos" :key="alumno.id_alumno" :value="alumno.id_alumno">
             {{ nombreAlumno(alumno) }}
           </option>
         </select>
-        <small v-if="errores.id_tesista_1" class="field-error">{{ errores.id_tesista_1 }}</small>
-      </label>
-
-      <label class="checkbox">
-        <input v-model="formulario.incluirTesista2" type="checkbox" />
-        Incluir Tesista 2
-      </label>
-
-      <label v-if="formulario.incluirTesista2">
-        Tesista 2
-        <select v-model.number="formulario.id_tesista_2" required>
-          <option :value="null" disabled>Seleccione un alumno</option>
-          <option v-for="alumno in alumnosParaTesista2" :key="alumno.id_alumno" :value="alumno.id_alumno">
-            {{ nombreAlumno(alumno) }}
-          </option>
-        </select>
-        <small v-if="errores.id_tesista_2" class="field-error">{{ errores.id_tesista_2 }}</small>
+        <small v-if="cargandoCandidatos" class="hint">Cargando candidatos…</small>
+        <small v-else-if="mensajeCandidatos" class="field-error">{{ mensajeCandidatos }}</small>
+        <small v-if="errores.id_co_tesista" class="field-error">{{ errores.id_co_tesista }}</small>
       </label>
 
       <label>
         Solicitud adjunta
-        <input v-model="formulario.solicitud_adjunta" type="text" required />
-        <small class="hint">Ingrese la ruta o referencia admitida por el contrato actual.</small>
+        <input
+          type="file"
+          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          required
+          @change="seleccionarSolicitud"
+        />
+        <small class="hint">PDF o DOCX, con un tamaño máximo de 30 MiB.</small>
         <small v-if="errores.solicitud_adjunta" class="field-error">{{ errores.solicitud_adjunta }}</small>
       </label>
 
@@ -301,16 +286,6 @@ select {
   font: inherit;
   border: 1px solid #d1d5db;
   border-radius: 4px;
-}
-
-.checkbox {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.checkbox input {
-  width: auto;
 }
 
 button {
