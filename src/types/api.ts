@@ -41,6 +41,10 @@ export interface Expediente {
   version: number
   cumple: 0 | 1
   estado: 0 | 1
+  tesista: ParticipanteExpediente | null
+  co_tesista: ParticipanteExpediente | null
+  etapa: EtapaExpedienteActual | null
+  estado_actual: EstadoExpedienteActual | null
 }
 
 export interface CandidatoTesista {
@@ -99,6 +103,56 @@ export interface ResumenRevisionDocumentaria {
   fecha_inicio: string | null
   fecha_cierre: string | null
   resultado_final: string | null
+}
+
+export interface SubsanacionDocumentaria {
+  id_subsanacion_documentaria: number
+  numero_intento: number
+  detalle: string | null
+  archivo_adjunto: string | null
+  fecha_presentacion: string
+  resultado: 'aceptada' | 'rechazada' | null
+  fecha_revision: string | null
+}
+
+export interface ObservacionDocumentaria {
+  id_observacion_documentaria: number
+  detalle: string
+  es_subsanable: boolean | 0 | 1
+  estado: 'pendiente' | 'en_subsanacion' | 'cerrada'
+  fecha_emision: string
+  subsanaciones: SubsanacionDocumentaria[]
+}
+
+export interface EvaluacionRequisitoDocumentario {
+  id_evaluacion_requisito: number
+  resultado: 'conforme' | 'observado' | 'no_presentado'
+  comentario: string | null
+  fecha_evaluacion: string
+  observaciones: ObservacionDocumentaria[]
+}
+
+export interface RequisitoRevisionDocumentaria {
+  id_requisito_documentario: number
+  codigo: string
+  nombre: string
+  descripcion: string | null
+  estado: 0 | 1
+  evaluacion: EvaluacionRequisitoDocumentario | null
+}
+
+export interface RevisionDocumentariaDetalle extends ResumenRevisionDocumentaria {
+  requisitos: RequisitoRevisionDocumentaria[]
+}
+
+export interface RevisionDocumentariaConsulta {
+  id_expediente: number
+  rondas: ResumenRevisionDocumentaria[]
+  revision: RevisionDocumentariaDetalle | null
+}
+
+export interface RevisionDocumentariaResponse {
+  data: RevisionDocumentariaConsulta
 }
 
 export interface ExpedienteDetalle {
