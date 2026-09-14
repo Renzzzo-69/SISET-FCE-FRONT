@@ -27,7 +27,7 @@ const router = useRouter()
 const detalle = ref<ExpedienteDetalle | null>(null)
 const revision = ref<RevisionDocumentariaConsulta | null>(null)
 const cargando = ref(true)
-const accionEnCurso = ref<'recepcion' | 'iniciar' | 'subsanacion' | null>(null)
+const accionEnCurso = ref<'recepcion' | 'iniciar' | 'subsanacion' | 'conformidad' | 'derivacion' | null>(null)
 const operacionEnCurso = ref<string | null>(null)
 const descargando = ref<string | null>(null)
 const mensajeError = ref('')
@@ -36,6 +36,7 @@ const confirmaciones = ref<Record<string, string>>({})
 const formulariosEvaluacion = ref<Record<number, { resultado: ResultadoEvaluacionRequisito | ''; comentario: string }>>({})
 const formulariosObservacion = ref<Record<number, { detalle: string; es_subsanable: boolean }>>({})
 const idExpediente = computed(() => Number(route.params.id))
+const estaGestionando = computed(() => accionEnCurso.value !== null || operacionEnCurso.value !== null)
 const puedeRecepcionar = computed(() => detalle.value?.estado_actual?.codigo === 'pendiente_derivacion')
 const puedeIniciar = computed(() => detalle.value?.estado_actual?.codigo === 'derivado_udi')
 const puedeEvaluar = computed(
@@ -59,6 +60,38 @@ const puedeSolicitarSubsanacion = computed(
         (observacion) => Boolean(observacion.es_subsanable) && observacion.estado === 'pendiente',
       ),
     ) ?? false),
+)
+const requisitosActivos = computed(() => revision.value?.revision?.requisitos.filter((requisito) => requisito.estado === 1) ?? [])
+const hayObservacionesAbiertas = computed(
+  () =>
+    revision.value?.revision?.requisitos.some((requisito) =>
+      requisito.evaluacion?.observaciones.some((observacion) => observacion.estado !== 'cerrada'),
+    ) ?? false,
+)
+const haySubsanacionesPendientes = computed(
+  () =>
+    revision.value?.revision?.requisitos.some((requisito) =>
+      requisito.evaluacion?.observaciones.some((observacion) =>
+        observacion.subsanaciones.some((subsanacion) => subsanacion.resultado === null),
+      ),
+    ) ?? false,
+)
+const puedeDeclararConformidad = computed(
+  () =>
+    detalle.value?.etapa_actual?.codigo === 'revision_requisitos_documentarios' &&
+    detalle.value.estado_actual?.codigo === 'en_revision' &&
+    revision.value?.revision?.fecha_cierre === null &&
+    requisitosActivos.value.length > 0 &&
+    requisitosActivos.value.every((requisito) => requisito.evaluacion?.resultado === 'conforme') &&
+    !hayObservacionesAbiertas.value &&
+    !haySubsanacionesPendientes.value,
+)
+const puedeDerivarDecanatura = computed(
+  () =>
+    detalle.value?.etapa_actual?.codigo === 'revision_requisitos_documentarios' &&
+    detalle.value.estado_actual?.codigo === 'conforme' &&
+    revision.value?.revision?.resultado_final === 'conforme' &&
+    revision.value?.revision?.fecha_cierre !== null,
 )
 
 function nombreParticipante(participante: ParticipanteExpediente | null) {
@@ -170,7 +203,7 @@ async function cargarInformacion() {
 }
 
 async function guardarEvaluacion(requisito: RequisitoRevisionDocumentaria) {
-  if (operacionEnCurso.value !== null) return
+  if (estaGestionando.value) return
 
   const formulario = formulariosEvaluacion.value[requisito.id_requisito_documentario]
 
@@ -202,7 +235,7 @@ async function guardarEvaluacion(requisito: RequisitoRevisionDocumentaria) {
 }
 
 async function registrarObservacion(requisito: RequisitoRevisionDocumentaria) {
-  if (operacionEnCurso.value !== null) return
+  if (estaGestionando.value) return
 
   const evaluacion = requisito.evaluacion
   if (!evaluacion) return
@@ -244,7 +277,7 @@ async function revisarSubsanacion(
   if (
     !Number.isInteger(idExpediente.value) ||
     idExpediente.value < 1 ||
-    operacionEnCurso.value !== null ||
+    estaGestionando.value ||
     !puedeRevisarSubsanacion(observacion, subsanacion)
   ) {
     return
@@ -273,7 +306,7 @@ async function revisarSubsanacion(
 }
 
 async function ejecutarAccion(accion: 'recepcion' | 'iniciar') {
-  if (!Number.isInteger(idExpediente.value) || idExpediente.value < 1) return
+  if (!Number.isInteger(idExpediente.value) || idExpediente.value < 1 || estaGestionando.value) return
 
   accionEnCurso.value = accion
   mensajeError.value = ''
@@ -294,7 +327,7 @@ async function ejecutarAccion(accion: 'recepcion' | 'iniciar') {
 }
 
 async function solicitarSubsanacion() {
-  if (!Number.isInteger(idExpediente.value) || idExpediente.value < 1 || accionEnCurso.value !== null) return
+  if (!Number.isInteger(idExpediente.value) || idExpediente.value < 1 || estaGestionando.value) return
 
   accionEnCurso.value = 'subsanacion'
   mensajeError.value = ''
@@ -306,6 +339,50 @@ async function solicitarSubsanacion() {
     await cargarInformacion()
   } catch (error) {
     mensajeError.value = mensajeDesdeError(error, 'No se pudo solicitar la subsanación.')
+  } finally {
+    accionEnCurso.value = null
+  }
+}
+
+async function declararConformidad() {
+  if (!Number.isInteger(idExpediente.value) || idExpediente.value < 1 || estaGestionando.value || !puedeDeclararConformidad.value) {
+    return
+  }
+
+  if (!window.confirm('¿Desea declarar la conformidad técnica de esta revisión?')) return
+
+  accionEnCurso.value = 'conformidad'
+  mensajeError.value = ''
+  mensajeAccion.value = ''
+
+  try {
+    await api.post(`/expedientes/${idExpediente.value}/revision-documentaria/conformidad`)
+    mensajeAccion.value = 'Conformidad técnica declarada.'
+    await cargarInformacion()
+  } catch (error) {
+    mensajeError.value = mensajeDesdeError(error, 'No se pudo declarar la conformidad técnica.')
+  } finally {
+    accionEnCurso.value = null
+  }
+}
+
+async function derivarDecanatura() {
+  if (!Number.isInteger(idExpediente.value) || idExpediente.value < 1 || estaGestionando.value || !puedeDerivarDecanatura.value) {
+    return
+  }
+
+  if (!window.confirm('¿Desea derivar este expediente a Decanatura?')) return
+
+  accionEnCurso.value = 'derivacion'
+  mensajeError.value = ''
+  mensajeAccion.value = ''
+
+  try {
+    await api.post(`/expedientes/${idExpediente.value}/revision-documentaria/derivacion-decanatura`)
+    mensajeAccion.value = 'Expediente derivado a Decanatura.'
+    await cargarInformacion()
+  } catch (error) {
+    mensajeError.value = mensajeDesdeError(error, 'No se pudo derivar el expediente a Decanatura.')
   } finally {
     accionEnCurso.value = null
   }
@@ -380,7 +457,7 @@ onMounted(cargarInformacion)
           <button
             v-if="puedeRecepcionar"
             type="button"
-            :disabled="accionEnCurso !== null"
+            :disabled="estaGestionando"
             @click="ejecutarAccion('recepcion')"
           >
             {{ accionEnCurso === 'recepcion' ? 'Recibiendo…' : 'Recibir expediente' }}
@@ -388,7 +465,7 @@ onMounted(cargarInformacion)
           <button
             v-else-if="puedeIniciar"
             type="button"
-            :disabled="accionEnCurso !== null"
+            :disabled="estaGestionando"
             @click="ejecutarAccion('iniciar')"
           >
             {{ accionEnCurso === 'iniciar' ? 'Iniciando…' : 'Iniciar revisión' }}
@@ -396,10 +473,26 @@ onMounted(cargarInformacion)
           <button
             v-else-if="puedeSolicitarSubsanacion"
             type="button"
-            :disabled="accionEnCurso !== null || operacionEnCurso !== null"
+            :disabled="estaGestionando"
             @click="solicitarSubsanacion"
           >
             {{ accionEnCurso === 'subsanacion' ? 'Solicitando…' : 'Solicitar subsanación' }}
+          </button>
+          <button
+            v-else-if="puedeDeclararConformidad"
+            type="button"
+            :disabled="estaGestionando"
+            @click="declararConformidad"
+          >
+            {{ accionEnCurso === 'conformidad' ? 'Declarando…' : 'Declarar conformidad' }}
+          </button>
+          <button
+            v-else-if="puedeDerivarDecanatura"
+            type="button"
+            :disabled="estaGestionando"
+            @click="derivarDecanatura"
+          >
+            {{ accionEnCurso === 'derivacion' ? 'Derivando…' : 'Derivar a Decanatura' }}
           </button>
           <p v-else class="muted">No hay acciones de revisión disponibles para el estado actual.</p>
         </section>
@@ -469,7 +562,7 @@ onMounted(cargarInformacion)
             <form v-if="puedeEvaluar" class="review-form" @submit.prevent="guardarEvaluacion(requisito)">
               <label>
                 Resultado
-                <select v-model="formularioEvaluacion(requisito.id_requisito_documentario).resultado" :disabled="operacionEnCurso !== null" required>
+                <select v-model="formularioEvaluacion(requisito.id_requisito_documentario).resultado" :disabled="estaGestionando" required>
                   <option value="">Seleccione un resultado</option>
                   <option value="conforme">Conforme</option>
                   <option value="observado">Observado</option>
@@ -480,11 +573,11 @@ onMounted(cargarInformacion)
                 Comentario (opcional)
                 <textarea
                   v-model="formularioEvaluacion(requisito.id_requisito_documentario).comentario"
-                  :disabled="operacionEnCurso !== null"
+                  :disabled="estaGestionando"
                   rows="3"
                 ></textarea>
               </label>
-              <button type="submit" :disabled="operacionEnCurso !== null">
+              <button type="submit" :disabled="estaGestionando">
                 {{ operacionEnCurso === `evaluacion-${requisito.id_requisito_documentario}` ? 'Guardando…' : 'Guardar evaluación' }}
               </button>
             </form>
@@ -551,7 +644,7 @@ onMounted(cargarInformacion)
                       <div v-if="puedeRevisarSubsanacion(observacion, subsanacion)" class="subsanation-actions">
                         <button
                           type="button"
-                          :disabled="operacionEnCurso !== null"
+                          :disabled="estaGestionando"
                           @click="revisarSubsanacion(observacion, subsanacion, 'aceptada')"
                         >
                           {{ operacionEnCurso === `subsanacion-${subsanacion.id_subsanacion_documentaria}` ? 'Guardando…' : 'Aceptar' }}
@@ -559,7 +652,7 @@ onMounted(cargarInformacion)
                         <button
                           type="button"
                           class="reject"
-                          :disabled="operacionEnCurso !== null"
+                          :disabled="estaGestionando"
                           @click="revisarSubsanacion(observacion, subsanacion, 'rechazada')"
                         >
                           Rechazar
@@ -577,12 +670,12 @@ onMounted(cargarInformacion)
                   Detalle de la observación
                   <textarea
                     v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).detalle"
-                    :disabled="operacionEnCurso !== null"
+                    :disabled="estaGestionando"
                     rows="3"
                     required
                   ></textarea>
                 </label>
-                <fieldset :disabled="operacionEnCurso !== null">
+                <fieldset :disabled="estaGestionando">
                   <legend>Clasificación</legend>
                   <label>
                     <input
@@ -603,7 +696,7 @@ onMounted(cargarInformacion)
                     No subsanable
                   </label>
                 </fieldset>
-                <button type="submit" :disabled="operacionEnCurso !== null">
+                <button type="submit" :disabled="estaGestionando">
                   {{
                     operacionEnCurso === `observacion-${requisito.evaluacion.id_evaluacion_requisito}`
                       ? 'Registrando…'
