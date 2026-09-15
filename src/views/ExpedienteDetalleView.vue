@@ -4,11 +4,14 @@ import axios from 'axios'
 import { useRoute, useRouter } from 'vue-router'
 
 import api, { descargarDocumentoPrivado } from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
 import type {
+  CatalogosInformeTesis,
   EstadoExpedienteActual,
   EtapaExpedienteActual,
   ExpedienteDetalle,
   ExpedienteDetalleResponse,
+  InformeProyectoTesisCreado,
   ObservacionDocumentaria,
   ParticipanteExpediente,
   RevisionDocumentariaConsulta,
@@ -17,6 +20,7 @@ import type {
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 
 const detalle = ref<ExpedienteDetalle | null>(null)
 const revision = ref<RevisionDocumentariaConsulta | null>(null)
@@ -28,9 +32,61 @@ const mensajeDescarga = ref('')
 const erroresSubsanacion = ref<Record<number, string>>({})
 const confirmacionesSubsanacion = ref<Record<number, string>>({})
 const formulariosSubsanacion = ref<Record<number, { detalle: string; archivo: File | null }>>({})
+const catalogosInforme = ref<CatalogosInformeTesis | null>(null)
+const mostrandoFormularioInforme = ref(false)
+const cargandoCatalogosInforme = ref(false)
+const enviandoInforme = ref(false)
+const enviandoTesisFinal = ref(false)
+const errorInforme = ref('')
+const exitoInforme = ref('')
+const errorEnvioTesisFinal = ref('')
+const exitoEnvioTesisFinal = ref('')
+const tipoInforme = ref<0 | 1>(0)
+const formularioInforme = ref({
+  id_area_investigacion: null as number | null,
+  id_sublinea_investigacion: null as number | null,
+  id_asesor: null as number | null,
+  id_coasesor: null as number | null,
+  titulo: '',
+  resumen: '',
+  archivo: null as File | null,
+})
 const idExpediente = computed(() => Number(route.params.id))
 const historialOrdenado = computed(() =>
   [...(detalle.value?.historial ?? [])].sort((a, b) => a.fecha_cambio.localeCompare(b.fecha_cambio)),
+)
+const esTesistaPropietario = computed(() => {
+  const idAlumno = auth.usuario?.alumno?.id_alumno
+  const participantes = [detalle.value?.tesista_1?.id_alumno, detalle.value?.tesista_2?.id_alumno]
+
+  return auth.tieneRol('tesista') && idAlumno !== undefined && participantes.includes(idAlumno)
+})
+const tieneProyecto = computed(() => detalle.value?.informes.some((informe) => informe.es_tesis === 0) ?? false)
+const puedeRegistrarTesisFinal = computed(
+  () =>
+    tieneProyecto.value &&
+    detalle.value?.etapa_actual?.codigo === 'fase_tesis_informe_final' &&
+    detalle.value.estado_actual?.codigo === 'fase_tesis_habilitada',
+)
+const puedeRegistrarInforme = computed(() => esTesistaPropietario.value)
+const puedeEnviarTesisFinal = computed(
+  () =>
+    esTesistaPropietario.value &&
+    detalle.value?.etapa_actual?.codigo === 'fase_tesis_informe_final' &&
+    detalle.value.estado_actual?.codigo === 'fase_tesis_habilitada' &&
+    detalle.value.informes.some((informe) => informe.es_tesis === 1),
+)
+const siguienteVersionInforme = computed(() =>
+  Math.max(
+    0,
+    ...(detalle.value?.informes
+      .filter((informe) => informe.es_tesis === tipoInforme.value)
+      .map((informe) => informe.version) ?? []),
+  ) + 1,
+)
+const docentesCoasesor = computed(
+  () =>
+    catalogosInforme.value?.docentes.filter((docente) => docente.id_docente !== formularioInforme.value.id_asesor) ?? [],
 )
 const puedePresentarSubsanacion = computed(
   () =>
@@ -49,7 +105,9 @@ const TIPOS_ARCHIVO_PERMITIDOS = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ]
 
-function nombreParticipante(participante: ParticipanteExpediente | null) {
+function nombreParticipante(
+  participante: Pick<ParticipanteExpediente, 'apellido_paterno' | 'apellido_materno' | 'nombres'> | null,
+) {
   return participante
     ? [participante.apellido_paterno, participante.apellido_materno, participante.nombres]
         .filter(Boolean)
@@ -226,6 +284,191 @@ function mensajeErrorSubsanacion(error: unknown) {
   return mensajeDesdeError(error, 'No se pudo presentar la subsanación.')
 }
 
+function restablecerFormularioInforme() {
+  tipoInforme.value = 0
+  formularioInforme.value = {
+    id_area_investigacion: null,
+    id_sublinea_investigacion: null,
+    id_asesor: null,
+    id_coasesor: null,
+    titulo: '',
+    resumen: '',
+    archivo: null,
+  }
+  errorInforme.value = ''
+}
+
+async function abrirFormularioInforme() {
+  if (!puedeRegistrarInforme.value) return
+
+  exitoInforme.value = ''
+  mostrandoFormularioInforme.value = true
+
+  if (catalogosInforme.value !== null || cargandoCatalogosInforme.value) return
+
+  cargandoCatalogosInforme.value = true
+  errorInforme.value = ''
+
+  try {
+    const { data } = await api.get<CatalogosInformeTesis>('/informes-tesis/catalogos')
+    catalogosInforme.value = data
+  } catch (error) {
+    errorInforme.value = mensajeErrorCatalogosInforme(error)
+  } finally {
+    cargandoCatalogosInforme.value = false
+  }
+}
+
+function cerrarFormularioInforme() {
+  mostrandoFormularioInforme.value = false
+  restablecerFormularioInforme()
+}
+
+function sincronizarCoasesor() {
+  if (formularioInforme.value.id_asesor === formularioInforme.value.id_coasesor) {
+    formularioInforme.value.id_coasesor = null
+  }
+}
+
+function seleccionarArchivoInforme(evento: Event) {
+  const entrada = evento.target as HTMLInputElement
+  const archivo = entrada.files?.[0] ?? null
+
+  errorInforme.value = ''
+
+  if (archivo === null) {
+    formularioInforme.value.archivo = null
+    return
+  }
+
+  if (!archivoPermitido(archivo)) {
+    formularioInforme.value.archivo = null
+    errorInforme.value = 'Seleccione un archivo PDF o DOCX.'
+    entrada.value = ''
+    return
+  }
+
+  if (archivo.size > TAMANO_MAXIMO_ARCHIVO) {
+    formularioInforme.value.archivo = null
+    errorInforme.value = 'El archivo no puede superar 30 MiB.'
+    entrada.value = ''
+    return
+  }
+
+  formularioInforme.value.archivo = archivo
+}
+
+function mensajeErrorInforme(error: unknown) {
+  if (axios.isAxiosError(error) && error.response?.status === 422) {
+    const errores = error.response.data?.errors
+    const primerError = errores ? Object.values(errores).flat().find((mensaje) => typeof mensaje === 'string') : null
+
+    return primerError ?? error.response.data?.message ?? 'Revise los datos del informe.'
+  }
+
+  if (axios.isAxiosError(error) && error.response?.status === 403) {
+    return 'No tiene autorización para registrar informes en este expediente.'
+  }
+
+  return mensajeDesdeError(error, 'No se pudo registrar el informe.')
+}
+
+function mensajeErrorCatalogosInforme(error: unknown) {
+  if (axios.isAxiosError(error) && error.response?.status === 403) {
+    return 'Su perfil Tesista activo no puede consultar los catálogos de informes.'
+  }
+
+  return mensajeDesdeError(error, 'No se pudieron cargar los catálogos para el informe.')
+}
+
+function mensajeErrorEnvioTesisFinal(error: unknown) {
+  if (axios.isAxiosError(error) && error.response?.status === 403) {
+    return 'No tiene autorización para enviar esta tesis final a jurados.'
+  }
+
+  return mensajeDesdeError(error, 'No se pudo enviar la tesis final a jurados.')
+}
+
+async function registrarInforme() {
+  if (enviandoInforme.value || enviandoTesisFinal.value || !puedeRegistrarInforme.value) return
+
+  if (tipoInforme.value === 1 && !puedeRegistrarTesisFinal.value) {
+    errorInforme.value = 'La tesis final requiere un proyecto y la fase de tesis habilitada.'
+    return
+  }
+
+  const formulario = formularioInforme.value
+
+  if (
+    formulario.id_area_investigacion === null ||
+    formulario.id_sublinea_investigacion === null ||
+    formulario.id_asesor === null ||
+    formulario.titulo.trim() === '' ||
+    formulario.resumen.trim() === ''
+  ) {
+    errorInforme.value = 'Complete todos los campos obligatorios del informe.'
+    return
+  }
+
+  if (formulario.id_coasesor === formulario.id_asesor) {
+    errorInforme.value = 'El coasesor debe ser distinto del asesor.'
+    return
+  }
+
+  if (formulario.archivo === null) {
+    errorInforme.value = 'Adjunte un archivo PDF o DOCX para continuar.'
+    return
+  }
+
+  const datos = new FormData()
+  datos.append('id_expediente', String(idExpediente.value))
+  datos.append('id_area_investigacion', String(formulario.id_area_investigacion))
+  datos.append('id_sublinea_investigacion', String(formulario.id_sublinea_investigacion))
+  datos.append('id_asesor', String(formulario.id_asesor))
+  if (formulario.id_coasesor !== null) {
+    datos.append('id_coasesor', String(formulario.id_coasesor))
+  }
+  datos.append('version', String(siguienteVersionInforme.value))
+  datos.append('es_tesis', String(tipoInforme.value))
+  datos.append('titulo', formulario.titulo.trim())
+  datos.append('resumen', formulario.resumen.trim())
+  datos.append('archivo_adjunto', formulario.archivo)
+
+  enviandoInforme.value = true
+  errorInforme.value = ''
+
+  try {
+    await api.post<InformeProyectoTesisCreado>('/informes-tesis', datos)
+    exitoInforme.value = `${tipoInforme.value === 1 ? 'Tesis final' : 'Proyecto'} registrado correctamente.`
+    cerrarFormularioInforme()
+    await cargarDetalle()
+  } catch (error) {
+    errorInforme.value = mensajeErrorInforme(error)
+  } finally {
+    enviandoInforme.value = false
+  }
+}
+
+async function enviarTesisFinalAJurados() {
+  if (enviandoInforme.value || enviandoTesisFinal.value || !puedeEnviarTesisFinal.value) return
+
+  if (!window.confirm('¿Desea enviar la tesis final a revisión de jurados?')) return
+
+  enviandoTesisFinal.value = true
+  errorEnvioTesisFinal.value = ''
+  exitoEnvioTesisFinal.value = ''
+
+  try {
+    await api.post(`/expedientes/${idExpediente.value}/tesis-final/envio-revision-jurados`)
+    exitoEnvioTesisFinal.value = 'La tesis final fue enviada a revisión de jurados.'
+    await cargarDetalle()
+  } catch (error) {
+    errorEnvioTesisFinal.value = mensajeErrorEnvioTesisFinal(error)
+  } finally {
+    enviandoTesisFinal.value = false
+  }
+}
+
 async function presentarSubsanacion(observacion: ObservacionDocumentaria) {
   if (subiendoSubsanacion.value !== null || !puedeSubsanarObservacion(observacion)) return
 
@@ -324,7 +567,118 @@ onMounted(cargarDetalle)
       </div>
 
       <section class="card section">
-        <h2>Informes</h2>
+        <div class="section-heading">
+          <h2>Informes</h2>
+          <div v-if="puedeRegistrarInforme" class="actions">
+            <button type="button" :disabled="enviandoInforme || enviandoTesisFinal" @click="abrirFormularioInforme">
+              Registrar informe
+            </button>
+            <button
+              v-if="puedeEnviarTesisFinal"
+              type="button"
+              :disabled="enviandoInforme || enviandoTesisFinal"
+              @click="enviarTesisFinalAJurados"
+            >
+              {{ enviandoTesisFinal ? 'Enviando…' : 'Enviar tesis final a jurados' }}
+            </button>
+          </div>
+        </div>
+        <p v-if="exitoInforme" class="inline-success" role="status">{{ exitoInforme }}</p>
+        <p v-if="exitoEnvioTesisFinal" class="inline-success" role="status">{{ exitoEnvioTesisFinal }}</p>
+        <p v-if="errorEnvioTesisFinal" class="error" role="alert">{{ errorEnvioTesisFinal }}</p>
+
+        <form v-if="mostrandoFormularioInforme" class="subsanation-form" @submit.prevent="registrarInforme">
+          <h3>Registrar informe</h3>
+          <p v-if="cargandoCatalogosInforme" class="muted">Cargando catálogos…</p>
+          <template v-else-if="catalogosInforme">
+            <label>
+              Tipo de informe
+              <select v-model="tipoInforme" :disabled="enviandoInforme || enviandoTesisFinal">
+                <option :value="0">Proyecto</option>
+                <option v-if="puedeRegistrarTesisFinal" :value="1">Tesis final</option>
+              </select>
+            </label>
+            <p class="muted">Versión {{ siguienteVersionInforme }}</p>
+            <label>
+              Área de investigación
+              <select v-model.number="formularioInforme.id_area_investigacion" :disabled="enviandoInforme || enviandoTesisFinal" required>
+                <option :value="null" disabled>Seleccione un área</option>
+                <option v-for="area in catalogosInforme.areas" :key="area.id_area_investigacion" :value="area.id_area_investigacion">
+                  {{ area.nombre }}
+                </option>
+              </select>
+            </label>
+            <label>
+              Sublínea de investigación
+              <select v-model.number="formularioInforme.id_sublinea_investigacion" :disabled="enviandoInforme || enviandoTesisFinal" required>
+                <option :value="null" disabled>Seleccione una sublínea</option>
+                <option
+                  v-for="sublinea in catalogosInforme.sublineas"
+                  :key="sublinea.id_sublinea_investigacion"
+                  :value="sublinea.id_sublinea_investigacion"
+                >
+                  {{ sublinea.nombre }}
+                </option>
+              </select>
+            </label>
+            <label>
+              Asesor
+              <select
+                v-model.number="formularioInforme.id_asesor"
+                :disabled="enviandoInforme || enviandoTesisFinal"
+                required
+                @change="sincronizarCoasesor"
+              >
+                <option :value="null" disabled>Seleccione un asesor</option>
+                <option v-for="docente in catalogosInforme.docentes" :key="docente.id_docente" :value="docente.id_docente">
+                  {{ nombreParticipante(docente) }}
+                </option>
+              </select>
+            </label>
+            <label>
+              Coasesor (opcional)
+              <select v-model.number="formularioInforme.id_coasesor" :disabled="enviandoInforme || enviandoTesisFinal">
+                <option :value="null">Sin coasesor</option>
+                <option v-for="docente in docentesCoasesor" :key="docente.id_docente" :value="docente.id_docente">
+                  {{ nombreParticipante(docente) }}
+                </option>
+              </select>
+            </label>
+            <label>
+              Título
+              <input v-model="formularioInforme.titulo" type="text" :disabled="enviandoInforme || enviandoTesisFinal" required>
+            </label>
+            <label>
+              Resumen
+              <textarea v-model="formularioInforme.resumen" :disabled="enviandoInforme || enviandoTesisFinal" rows="4" required></textarea>
+            </label>
+            <label>
+              Archivo PDF o DOCX (máximo 30 MiB)
+              <input
+                type="file"
+                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                :disabled="enviandoInforme || enviandoTesisFinal"
+                required
+                @change="seleccionarArchivoInforme"
+              >
+            </label>
+            <p v-if="formularioInforme.archivo" class="muted">{{ formularioInforme.archivo.name }}</p>
+            <p v-if="errorInforme" class="field-error" role="alert">{{ errorInforme }}</p>
+            <div class="actions">
+              <button type="submit" :disabled="enviandoInforme || enviandoTesisFinal">
+                {{ enviandoInforme ? 'Registrando…' : 'Registrar informe' }}
+              </button>
+              <button type="button" :disabled="enviandoInforme || enviandoTesisFinal" @click="cerrarFormularioInforme">
+                Cancelar
+              </button>
+            </div>
+          </template>
+          <template v-else>
+            <p v-if="errorInforme" class="field-error" role="alert">{{ errorInforme }}</p>
+            <button type="button" :disabled="cargandoCatalogosInforme" @click="abrirFormularioInforme">Reintentar</button>
+          </template>
+        </form>
+
         <ul v-if="detalle.informes.length" class="items">
           <li v-for="informe in detalle.informes" :key="informe.id_informe_proyecto_tesis">
             <div>
@@ -508,6 +862,23 @@ small {
   margin-top: 1rem;
 }
 
+.section-heading,
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.section-heading {
+  margin-bottom: 1rem;
+}
+
+.section-heading h2,
+.subsanation-form h3 {
+  margin: 0;
+}
+
 dl {
   display: grid;
   gap: 0.75rem;
@@ -654,6 +1025,8 @@ button:disabled {
 }
 
 textarea,
+select,
+input[type='text'],
 input[type='file'] {
   box-sizing: border-box;
   width: 100%;
@@ -677,7 +1050,9 @@ input[type='file'] {
 
 @media (max-width: 600px) {
   .heading,
-  .items li {
+  .items li,
+  .section-heading,
+  .actions {
     align-items: flex-start;
     flex-direction: column;
   }

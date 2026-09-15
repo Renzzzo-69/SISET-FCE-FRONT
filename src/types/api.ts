@@ -83,6 +83,48 @@ export interface InformeExpediente {
   estado: 0 | 1
 }
 
+export interface AreaInvestigacionCatalogo {
+  id_area_investigacion: number
+  nombre: string
+}
+
+export interface SublineaInvestigacionCatalogo {
+  id_sublinea_investigacion: number
+  id_linea_investigacion: number
+  nombre: string
+}
+
+export interface DocenteCatalogo {
+  id_docente: number
+  nombres: string
+  apellido_paterno: string
+  apellido_materno: string
+}
+
+export interface CatalogosInformeTesis {
+  areas: AreaInvestigacionCatalogo[]
+  sublineas: SublineaInvestigacionCatalogo[]
+  docentes: DocenteCatalogo[]
+}
+
+export interface InformeProyectoTesisCreado {
+  id_informe_proyecto__tesis: number
+  id_expediente: number
+  id_area_investigacion: number
+  id_sublinea_investigacion: number
+  id_asesor: number
+  id_coasesor: number | null
+  version: number
+  es_tesis: 0 | 1
+  resumen: string
+  titulo: string
+  turnitin: null
+  archivo_adjunto: string | null
+  fecha_revision: string | null
+  fecha_subsanacion: string | null
+  estado: 0 | 1
+}
+
 export interface EventoHistorialExpediente {
   id_historial: number
   fecha_cambio: string
