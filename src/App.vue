@@ -20,21 +20,3 @@ watch(
 <template>
   <RouterView />
 </template>
-
-<style>
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  color: #1f2937;
-  font-family: Arial, sans-serif;
-  background: #f4f7f6;
-}
-
-button,
-input {
-  font: inherit;
-}
-</style>
