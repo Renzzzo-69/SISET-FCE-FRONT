@@ -13,7 +13,6 @@ const expedientes = ref<Expediente[]>([])
 const cargando = ref(false)
 const mensajeError = ref('')
 const puedeCrear = computed(() => auth.tieneRol('tesista'))
-const puedeGestionarTurnitin = computed(() => auth.tieneRol('udi', 'administrador'))
 const puedeGestionarRevisionUdi = computed(() => auth.tieneRol('udi', 'administrador'))
 
 async function cargarExpedientes() {
@@ -45,9 +44,6 @@ onMounted(cargarExpedientes)
       </div>
       <button type="button" :disabled="cargando" @click="cargarExpedientes">
         {{ cargando ? 'Actualizando…' : 'Actualizar' }}
-      </button>
-      <button v-if="puedeGestionarTurnitin" type="button" @click="router.push({ name: 'udi-turnitin' })">
-        Turnitin UDI
       </button>
       <button v-if="puedeGestionarRevisionUdi" type="button" @click="router.push({ name: 'udi-expedientes' })">
         Bandeja UDI

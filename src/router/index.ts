@@ -7,7 +7,6 @@ import ExpedienteDetalleView from '@/views/ExpedienteDetalleView.vue'
 import ExpedientesView from '@/views/ExpedientesView.vue'
 import LoginView from '@/views/LoginView.vue'
 import PanelView from '@/views/PanelView.vue'
-import TurnitinUdiView from '@/views/TurnitinUdiView.vue'
 import UdiExpedientesView from '@/views/UdiExpedientesView.vue'
 import UdiRevisionView from '@/views/UdiRevisionView.vue'
 
@@ -48,11 +47,6 @@ const router = createRouter({
           path: 'expedientes/:id',
           name: 'expedientes-detalle',
           component: ExpedienteDetalleView,
-        },
-        {
-          path: 'udi/turnitin',
-          name: 'udi-turnitin',
-          component: TurnitinUdiView,
         },
         {
           path: 'udi/expedientes',

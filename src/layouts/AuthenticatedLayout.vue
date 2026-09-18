@@ -24,7 +24,6 @@ const navegacion = computed(() => {
 
   if (auth.tieneRol('udi', 'administrador')) {
     agregar('udi-expedientes', 'Bandeja UDI', 'inbox')
-    agregar('udi-turnitin', 'Turnitin', 'fact_check')
   }
 
   return [...enlaces.values()]
