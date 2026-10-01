@@ -11,22 +11,22 @@
     <nav class="flex-grow space-y-1">
       <div class="font-nav-caps text-nav-caps text-on-primary-container mb-2 uppercase">Menú Principal</div>
       <router-link class="bg-primary-container text-on-primary-fixed rounded-xl flex items-center gap-3 px-4 py-3 transition-colors" :to="{ name: 'secretaria-resoluciones' }">
-        <span class="material-symbols-outlined">dashboard</span>
-        <span class="font-label-md text-label-md">Principal</span>
-      </router-link>
-      <router-link class="text-primary-fixed/70 hover:text-primary-fixed hover:bg-primary-container/50 flex items-center gap-3 px-4 py-3 transition-colors rounded-xl" :to="{ name: 'secretaria-subir-resolucion' }">
-        <span class="material-symbols-outlined">upload</span>
-        <span class="font-label-md text-label-md">Subir Resolución</span>
+        <span class="material-symbols-outlined">gavel</span>
+        <span class="font-label-md text-label-md">Resoluciones</span>
       </router-link>
       <router-link class="text-primary-fixed/70 hover:text-primary-fixed hover:bg-primary-container/50 flex items-center gap-3 px-4 py-3 transition-colors rounded-xl" :to="{ name: 'secretaria-corregir-resolucion' }">
         <span class="material-symbols-outlined">edit_note</span>
-        <span class="font-label-md text-label-md">Corregir Resolución</span>
+        <span class="font-label-md text-label-md">Corrección de Subidas</span>
+      </router-link>
+      <router-link class="text-primary-fixed/70 hover:text-primary-fixed hover:bg-primary-container/50 flex items-center gap-3 px-4 py-3 transition-colors rounded-xl" :to="{ name: 'secretaria-configuracion' }">
+        <span class="material-symbols-outlined">settings</span>
+        <span class="font-label-md text-label-md">Configuración</span>
       </router-link>
 
     </nav>
 
     <div class="mt-auto pt-6 space-y-1">
-      <button class="w-full mt-4 bg-secondary-container text-on-secondary-container font-label-md text-label-md py-3 rounded-xl flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all">
+      <button class="w-full mt-4 bg-secondary-container text-on-secondary-container font-label-md text-label-md py-3 rounded-xl flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all" @click="cerrarSesion">
         <span class="material-symbols-outlined">logout</span>
         Cerrar Sesión
       </button>
@@ -35,7 +35,16 @@
 </template>
 
 <script setup lang="ts">
-// Sidebar para Secretaría Académica
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
+const router = useRouter()
+
+async function cerrarSesion() {
+  await auth.cerrarSesion()
+  await router.push({ name: 'login' })
+}
 </script>
 
 <style scoped>

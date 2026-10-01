@@ -80,7 +80,7 @@
           </div>
           <div class="pt-4 border-t border-white/10 space-y-1.5">
               <p class="text-[10px] font-bold text-white/40 uppercase tracking-widest px-3">General</p>
-              <router-link class="px-3 py-2.5 flex items-center gap-3 text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all group" to="/perfil">
+              <router-link class="px-3 py-2.5 flex items-center gap-3 text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all group" :to="{ name: 'docente-configuracion' }">
                   <span class="material-symbols-outlined text-xl text-white/40 group-hover:text-white transition-colors">settings</span>
                   <span class="text-sm font-medium">Configuración</span>
               </router-link>
@@ -88,16 +88,30 @@
       </nav>
 
       <div class="p-4 border-t border-white/10 bg-black/10">
-          <button class="w-full bg-white/10 hover:bg-[#ba1a1a]/20 text-white hover:text-[#ffdad6] py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all duration-150">
+          <button type="button" :disabled="cerrando" class="w-full bg-white/10 hover:bg-[#ba1a1a]/20 text-white hover:text-[#ffdad6] py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all duration-150 disabled:cursor-wait disabled:opacity-60" @click="cerrarSesion">
               <span class="material-symbols-outlined text-lg">logout</span>
-              <span>Cerrar Sesión</span>
+              <span>{{ cerrando ? 'Cerrando...' : 'Cerrar Sesión' }}</span>
           </button>
       </div>
   </aside>
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+
 const logoSrc = 'https://lh3.googleusercontent.com/aida/ADBb0ugNA3MZcI-5IoN1VZGgyIZjzCrqMdzxkUR5cr3_jvyhWXYL-CUB8Uqo2dQSPO6VK2fuBmG0G_sPxnDVSpiYiIKXM_4DmmCW5lO0zGCJz4hiyHWjTu3DPXqf9zW8PuDD7M3oJHeJ_BasoPp9i7OQ3esMzXYU8pXjekMFl7s7v2A8VtJ11V_Rw_9gHRN0cPjj8DvIH9n6AggZUaE7RJxaD3VRbtgiekHpdJNnaazT21GghUTfuxcYsWOwGlQHEw1eMwc0a4MKdR-jAyM'
+const auth = useAuthStore()
+const router = useRouter()
+const cerrando = ref(false)
+
+async function cerrarSesion() {
+  if (cerrando.value) return
+  cerrando.value = true
+  await auth.cerrarSesion()
+  await router.replace({ name: 'login' })
+}
 </script>
 
 <style scoped>

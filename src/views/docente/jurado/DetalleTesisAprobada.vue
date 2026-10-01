@@ -1,8 +1,12 @@
 <template>
-  <div class="flex-1 lg:ml-[260px] min-h-screen flex flex-col">
-    <header class="flex justify-between items-center h-[70px] px-gutter w-full sticky top-0 z-40 bg-surface-container-lowest border-b border-outline-variant shadow-sm">
+  <div class="flex min-h-screen flex-1 flex-col">
+    <header
+      class="flex justify-between items-center h-[70px] px-gutter w-full sticky top-0 z-40 bg-surface-container-lowest border-b border-outline-variant shadow-sm"
+    >
       <div class="flex items-center gap-4">
-        <button class="lg:hidden p-2 text-on-surface-variant hover:bg-surface-container rounded-full transition-colors">
+        <button
+          class="lg:hidden p-2 text-on-surface-variant hover:bg-surface-container rounded-full transition-colors"
+        >
           <span class="material-symbols-outlined">arrow_back</span>
         </button>
         <h2 class="font-headline-sm text-headline-sm text-primary">Detalle de Tesis (Aprobada)</h2>
@@ -15,13 +19,17 @@
           <span class="material-symbols-outlined text-primary">arrow_back</span>
         </button>
         <div>
-          <h3 class="font-headline-lg text-primary leading-tight">SISTEMA INFORMATICO HELPDESK - TESIS APROBADA</h3>
+          <h3 class="font-headline-lg text-primary leading-tight">
+            SISTEMA INFORMATICO HELPDESK - TESIS APROBADA
+          </h3>
         </div>
       </div>
 
       <section class="space-y-6 pb-12">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <article class="lg:col-span-2 bg-surface-container-lowest border border-outline-variant rounded-2xl p-6 shadow-sm">
+          <article
+            class="lg:col-span-2 bg-surface-container-lowest border border-outline-variant rounded-2xl p-6 shadow-sm"
+          >
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div>
                 <div class="flex items-center gap-2 mb-4 text-primary">
@@ -52,8 +60,13 @@
           </article>
         </div>
 
-        <div class="flex flex-wrap justify-end items-center gap-4 py-8 border-t border-outline-variant">
-          <a href="#" class="h-11 px-5 border border-primary/40 text-primary rounded-lg font-medium text-body-md flex items-center justify-center gap-2 hover:bg-primary/5 transition-all">
+        <div
+          class="flex flex-wrap justify-end items-center gap-4 py-8 border-t border-outline-variant"
+        >
+          <a
+            href="#"
+            class="h-11 px-5 border border-primary/40 text-primary rounded-lg font-medium text-body-md flex items-center justify-center gap-2 hover:bg-primary/5 transition-all"
+          >
             <span class="material-symbols-outlined text-[20px]">visibility</span>
             <span>Ver Informe</span>
           </a>
@@ -61,7 +74,9 @@
       </section>
     </main>
 
-    <footer class="flex flex-col sm:flex-row justify-between items-center pt-8 border-t border-outline-variant text-on-surface-variant gap-4">
+    <footer
+      class="flex flex-col sm:flex-row justify-between items-center pt-8 border-t border-outline-variant text-on-surface-variant gap-4"
+    >
       <div class="flex items-center gap-6">
         <p class="text-label-sm">© 2024 Facultad de Ciencias Económicas</p>
       </div>
@@ -78,5 +93,7 @@
 </script>
 
 <style scoped>
-.p-gutter { padding: 1.25rem; }
+.p-gutter {
+  padding: 1.25rem;
+}
 </style>

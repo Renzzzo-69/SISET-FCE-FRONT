@@ -1,118 +1,12 @@
-<template>
-  <div class="flex-1 lg:ml-[260px] min-h-screen flex flex-col">
-    <header class="flex justify-between items-center h-[70px] px-gutter w-full sticky top-0 z-50 bg-surface-container-lowest border-b border-outline-variant shadow-sm">
-      <div class="flex items-center gap-4">
-        <button class="lg:hidden p-2 text-on-surface-variant hover:bg-surface-container rounded-full transition-colors">
-          <span class="material-symbols-outlined">menu</span>
-        </button>
-        <h2 class="font-headline-sm text-headline-sm text-primary">Docente</h2>
-      </div>
-      <div class="flex items-center gap-4">
-        <div class="text-right hidden sm:block">
-          <p class="font-headline-sm text-headline-sm text-primary"><span class="font-medium">Bienvenido</span> Ing. Mg. Segundo Roger Ramírez Shupingahua</p>
-          <p class="text-label-md text-on-surface-variant">segundoroger@gmail.com 944 929 63</p>
-        </div>
-      </div>
-    </header>
-
-    <div class="p-gutter lg:p-10 space-y-8 max-w-7xl mx-auto w-full">
-      <div class="flex flex-col md:flex-row items-center gap-6">
-        <div class="flex items-center bg-surface-container-lowest px-6 py-4 rounded-full border border-outline-variant shadow-sm transition-shadow focus-within:shadow-md flex-1 md:max-w-[50%]">
-          <span class="material-symbols-outlined text-primary mr-3">search</span>
-          <input class="bg-transparent border-none focus:ring-0 text-body-md w-full placeholder:text-on-surface-variant/50" placeholder="Buscar" type="text" />
-        </div>
-        <div class="flex items-center gap-6 px-4">
-          <label class="flex items-center gap-2 cursor-pointer group">
-            <input class="w-5 h-5 rounded border-outline-variant text-primary focus:ring-primary/20 transition-all cursor-pointer" type="checkbox" />
-            <span class="text-body-md font-medium text-on-surface-variant group-hover:text-primary transition-colors">Autor</span>
-          </label>
-          <label class="flex items-center gap-2 cursor-pointer group">
-            <input class="w-5 h-5 rounded border-outline-variant text-primary focus:ring-primary/20 transition-all cursor-pointer" type="checkbox" />
-            <span class="text-body-md font-medium text-on-surface-variant group-hover:text-primary transition-colors">Escuela</span>
-          </label>
-        </div>
-      </div>
-
-      <div class="flex items-end justify-between px-2">
-        <div>
-          <h3 class="font-headline-lg text-headline-lg text-primary">Tesis en Revisión</h3>
-          <p class="text-body-md text-on-surface-variant">Seguimiento de expedientes de tesis en proceso de revisión por el jurado</p>
-        </div>
-      </div>
-
-      <div class="space-y-4 pb-12">
-        <!-- Example card repetition from static HTML -->
-        <div class="group bg-surface-container-lowest border border-outline-variant rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-outline/30 transition-all duration-200">
-          <div class="flex flex-col lg:flex-row gap-6">
-            <div class="flex-1 space-y-4">
-              <a href="#" class="block">
-                <h4 class="font-headline-md text-headline-sm text-on-surface leading-snug group-hover:text-primary transition-colors uppercase">"DETECCIÓN DE LA PLANTA MEDICINAL MALVA UTILIZANDO ALGORITMOS DE APRENDIZAJE PROFUNDO"</h4>
-              </a>
-
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="flex items-center gap-3 text-on-surface-variant">
-                  <span class="material-symbols-outlined text-outline text-[20px]">person</span>
-                  <div>
-                    <p class="text-label-sm font-bold text-on-surface">YAKU MARISOL RODRIGO VITÓN</p>
-                    <p class="text-[12px]">yarodrigov@alumno.unsm.edu.pe • 900061507</p>
-                  </div>
-                </div>
-                <div class="flex items-center gap-3 text-on-surface-variant">
-                  <span class="material-symbols-outlined text-outline text-[20px]">assignment_ind</span>
-                  <div>
-                    <p class="text-label-sm font-bold text-on-surface">Vocal de Jurado</p>
-                    <p class="text-[12px]">Rol designado</p>
-                  </div>
-                </div>
-              </div>
-
-              <div class="flex items-center gap-2 pt-2 border-t border-outline-variant/30">
-                <span class="material-symbols-outlined text-outline text-[18px]">description</span>
-                <span class="text-[12px] font-medium text-on-surface-variant">Resolución:</span>
-                <a class="text-[12px] font-bold text-outline hover:underline decoration-2 underline-offset-4" href="#">RESOLUCION N 114-2025-UNSM/FISI/CFT</a>
-              </div>
-            </div>
-
-            <div class="lg:w-72 flex flex-col justify-center border-t lg:border-t-0 lg:border-l border-outline-variant/50 pt-4 lg:pt-0 lg:pl-6">
-              <div class="bg-surface-container border border-outline-variant/50 p-4 rounded-xl">
-                <div class="flex items-center gap-2 text-on-surface-variant mb-2">
-                  <span class="material-symbols-outlined text-[20px]">info</span>
-                  <span class="text-label-md font-bold uppercase tracking-tight">Pendiente de Envío</span>
-                </div>
-                <p class="text-[13px] leading-relaxed text-on-surface-variant font-medium">El Tesista aún no envía su Tesis</p>
-                <div class="mt-4 pt-4 border-t border-outline-variant/30">
-                  <div class="flex items-center gap-2 mb-1">
-                    <span class="w-2 h-2 rounded-full bg-tertiary"></span>
-                    <span class="text-label-sm font-bold text-tertiary uppercase">PRÓXIMO A VENCER</span>
-                  </div>
-                  <div class="flex items-center gap-1.5 text-on-surface-variant">
-                    <span class="material-symbols-outlined text-[16px]">schedule</span>
-                    <p class="text-body-md font-medium italic">Quedan 2d 8h</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- more cards could be rendered by mapping data -->
-      </div>
-    </div>
-
-    <footer class="flex flex-col sm:flex-row justify-between items-center pt-8 border-t border-outline-variant text-on-surface-variant gap-4 p-gutter">
-      <div class="flex items-center gap-6"><p class="text-label-sm">© 2024 Facultad de Ciencias Económicas</p>
-        <a class="text-label-sm hover:text-primary transition-colors" href="#">Términos y Condiciones</a>
-        <a class="text-label-sm hover:text-primary transition-colors" href="#">Soporte Técnico</a>
-      </div>
-      <div class="flex items-center gap-2"><span class="w-2 h-2 bg-secondary rounded-full animate-pulse"></span><p class="text-[10px] font-bold uppercase tracking-widest">Sistema Operativo</p></div>
-    </footer>
-  </div>
-</template>
-
 <script setup lang="ts">
-// UI-only view for jurado -> tesis en revisión
+import { computed, onMounted, ref } from 'vue'
+import api from '@/services/api'
+type Tesis={id_expediente:number;codigo:string;titulo:string;version:number;tesista:string;correo:string|null;celular:string|null;escuela:string|null;cargo:string;estado_codigo:string;estado:string;etapa:string;fecha:string}
+type Respuesta={docente:{nombre:string;correo:string;celular:string};total:number;tesis:Tesis[]}
+const cargando=ref(true);const error=ref('');const busqueda=ref('');const filtroAutor=ref(false);const filtroEscuela=ref(false);const tesis=ref<Tesis[]>([]);const docente=ref({nombre:'',correo:'',celular:''})
+const visibles=computed(()=>{const q=busqueda.value.trim().toLocaleLowerCase('es');if(!q)return tesis.value;return tesis.value.filter(t=>{const campo=filtroAutor.value&&!filtroEscuela.value?t.tesista:filtroEscuela.value&&!filtroAutor.value?(t.escuela??''):`${t.codigo} ${t.titulo} ${t.tesista} ${t.escuela??''} ${t.estado}`;return campo.toLocaleLowerCase('es').includes(q)})})
+function estadoClase(codigo:string){return codigo==='observado'?'bg-error-container text-on-error-container':codigo==='pendiente_subsanacion'?'bg-tertiary-fixed text-on-tertiary-fixed-variant':'bg-primary-fixed text-on-primary-fixed-variant'}
+async function cargar(){cargando.value=true;error.value='';try{const{data}=await api.get<Respuesta>('/docente/jurado/tesis',{params:{estado:'revision'}});tesis.value=data.tesis;docente.value=data.docente}catch(e:any){error.value=e.response?.data?.message??'No se pudieron cargar las tesis asignadas.'}finally{cargando.value=false}}
+onMounted(cargar)
 </script>
-
-<style scoped>
-.p-gutter { padding: 1.25rem; }
-</style>
+<template><div class="min-h-screen flex flex-col bg-background"><header class="flex justify-between items-center h-[70px] px-gutter sticky top-0 z-40 bg-surface-container-lowest border-b border-outline-variant shadow-sm"><h2 class="font-headline-sm text-primary">Docente</h2><div class="text-right hidden sm:block"><p class="font-headline-sm text-primary"><span class="font-medium">Bienvenido</span> {{docente.nombre}}</p><p class="text-label-md text-on-surface-variant">{{docente.correo}}<span v-if="docente.celular"> · {{docente.celular}}</span></p></div></header><main class="p-gutter lg:p-10 space-y-8 max-w-7xl mx-auto w-full"><div class="flex flex-col md:flex-row items-center gap-6"><div class="flex items-center bg-surface-container-lowest px-6 py-4 rounded-full border border-outline-variant shadow-sm flex-1 md:max-w-[50%]"><span class="material-symbols-outlined text-primary mr-3">search</span><input v-model="busqueda" class="bg-transparent border-none focus:ring-0 outline-none w-full" placeholder="Buscar por título, expediente o tesista"></div><div class="flex gap-6 px-4"><label class="flex items-center gap-2"><input v-model="filtroAutor" type="checkbox" class="w-5 h-5 rounded accent-primary"><span>Autor</span></label><label class="flex items-center gap-2"><input v-model="filtroEscuela" type="checkbox" class="w-5 h-5 rounded accent-primary"><span>Escuela</span></label></div></div><div class="flex items-end justify-between px-2"><div><h3 class="font-headline-lg text-headline-lg text-primary">Tesis en Revisión</h3><p class="text-on-surface-variant">Tesis asignadas al docente como integrante de jurado</p></div><span class="text-sm text-on-surface-variant">{{visibles.length}} resultado(s)</span></div><div v-if="cargando" class="py-16 text-center text-on-surface-variant">Cargando tesis asignadas...</div><div v-else-if="error" class="rounded-xl bg-error-container p-4 text-error">{{error}} <button class="font-bold underline" @click="cargar">Reintentar</button></div><div v-else-if="!visibles.length" class="rounded-2xl bg-surface-container-lowest border border-outline-variant p-10 text-center text-on-surface-variant">No tiene tesis pendientes de revisión.</div><div v-else class="space-y-4 pb-12"><article v-for="item in visibles" :key="item.id_expediente" class="group bg-surface-container-lowest border border-outline-variant rounded-2xl p-6 shadow-sm hover:shadow-md"><div class="flex flex-col lg:flex-row gap-6"><div class="flex-1 space-y-4"><RouterLink :to="{name:'docente-jurado-tesis-detalle',params:{id:item.id_expediente}}" class="block"><h4 class="font-headline-md text-headline-sm text-on-surface group-hover:text-primary uppercase">{{item.titulo}}</h4><p class="text-xs text-primary mt-1">{{item.codigo}}</p></RouterLink><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div class="flex gap-3"><span class="material-symbols-outlined text-outline">person</span><div><p class="text-label-sm font-bold">{{item.tesista}}</p><p class="text-xs text-on-surface-variant">{{item.correo??'Sin correo'}}<span v-if="item.celular"> · {{item.celular}}</span></p></div></div><div class="flex gap-3"><span class="material-symbols-outlined text-outline">assignment_ind</span><div><p class="text-label-sm font-bold">{{item.cargo}} de Jurado</p><p class="text-xs text-on-surface-variant">{{item.escuela??'Escuela no registrada'}}</p></div></div></div><div class="flex items-center gap-2 pt-2 border-t border-outline-variant/30"><span class="material-symbols-outlined text-outline text-[18px]">description</span><span class="text-xs">{{item.etapa}} · versión {{item.version}}</span></div></div><div class="lg:w-72 lg:border-l border-outline-variant/50 lg:pl-6 flex items-center"><div class="w-full bg-surface-container p-4 rounded-xl"><div class="flex items-center gap-2 mb-3"><span class="material-symbols-outlined">info</span><span class="text-xs font-bold uppercase">Estado de revisión</span></div><span class="inline-block px-3 py-1 rounded-full text-xs font-bold" :class="estadoClase(item.estado_codigo)">{{item.estado}}</span><RouterLink :to="{name:'docente-jurado-tesis-detalle',params:{id:item.id_expediente}}" class="mt-4 flex justify-center bg-primary text-white px-4 py-2 rounded-lg font-bold">Revisar tesis</RouterLink></div></div></div></article></div></main></div></template>

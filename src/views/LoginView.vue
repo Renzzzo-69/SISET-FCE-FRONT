@@ -4,10 +4,12 @@ import axios from 'axios'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
+import { useTheme } from '@/services/theme'
 
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+const { oscuro, cambiarTema } = useTheme()
 
 const credenciales = ref({
   correo_electronico: '',
@@ -31,12 +33,17 @@ async function iniciarSesion() {
         : { name: 'dashboard' },
     )
   } catch (error) {
-    mensajeError.value =
-      axios.isAxiosError(error) && error.response?.data?.message
-        ? error.response.data.message
-        : error instanceof Error
-          ? error.message
-          : 'No se pudo iniciar sesión.'
+    if (axios.isAxiosError(error)) {
+      if (!error.response) {
+        mensajeError.value = 'No se pudo conectar con el servidor.'
+      } else if (error.response.status >= 500) {
+        mensajeError.value = 'El servidor no pudo completar el inicio de sesión.'
+      } else {
+        mensajeError.value = error.response.data?.message ?? 'No se pudo iniciar sesión.'
+      }
+    } else {
+      mensajeError.value = error instanceof Error ? error.message : 'No se pudo iniciar sesión.'
+    }
   } finally {
     cargando.value = false
   }
@@ -46,21 +53,25 @@ async function iniciarSesion() {
 <template>
   <div class="page-shell">
     <div class="background-layer">
-      <img
-        alt="Background"
-        class="background-image"
-        src="/logo2.jpeg"
-      />
+      <img alt="Background" class="background-image" src="/logo2.jpeg" />
       <div class="backdrop"></div>
     </div>
+
+    <button
+      class="theme-toggle"
+      type="button"
+      :aria-label="oscuro ? 'Activar modo claro' : 'Activar modo oscuro'"
+      :title="oscuro ? 'Modo claro' : 'Modo oscuro'"
+      @click="cambiarTema(!oscuro)"
+    >
+      <span class="material-symbols-outlined">{{ oscuro ? 'light_mode' : 'dark_mode' }}</span>
+      <span>{{ oscuro ? 'Modo claro' : 'Modo oscuro' }}</span>
+    </button>
 
     <main class="login-frame">
       <div class="brand-wrap">
         <div class="brand-badge">
-          <img
-            alt="Logo Facultad de Ciencias Económicas"
-            src="/fce-logo.png"
-          />
+          <img alt="Logo Facultad de Ciencias Económicas" src="/fce-logo.png" />
         </div>
         <h1>SISET-FCE</h1>
         <p>UNSM</p>
@@ -71,7 +82,13 @@ async function iniciarSesion() {
           <h2 id="login-title">Bienvenido al Sistema de Seguimiento de Tesis</h2>
         </div>
 
-        <form class="login-form" @submit.prevent="iniciarSesion" role="form" aria-describedby="login-error" novalidate>
+        <form
+          class="login-form"
+          @submit.prevent="iniciarSesion"
+          role="form"
+          aria-describedby="login-error"
+          novalidate
+        >
           <div class="field-group">
             <label for="username">DNI</label>
             <div class="input-wrap">
@@ -105,10 +122,12 @@ async function iniciarSesion() {
                 type="button"
                 class="password-toggle"
                 :aria-label="mostrarPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                :aria-pressed="mostrarPassword"
+                :title="mostrarPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
                 @click="mostrarPassword = !mostrarPassword"
               >
                 <span class="material-symbols-outlined">
-                  {{ mostrarPassword ? 'visibility_off' : '' }}
+                  {{ mostrarPassword ? 'visibility_off' : 'visibility' }}
                 </span>
               </button>
             </div>
@@ -125,7 +144,15 @@ async function iniciarSesion() {
             <p class="helper-text">Cualquier problema de inicio de sesión, acudir a la UDI</p>
           </div>
 
-          <p v-if="mensajeError" id="login-error" class="error-text" role="alert" aria-live="polite">{{ mensajeError }}</p>
+          <p
+            v-if="mensajeError"
+            id="login-error"
+            class="error-text"
+            role="alert"
+            aria-live="polite"
+          >
+            {{ mensajeError }}
+          </p>
 
           <button class="submit-button" type="submit" :disabled="cargando">
             <span>{{ cargando ? 'Ingresando…' : 'Iniciar Sesión' }}</span>
@@ -136,10 +163,7 @@ async function iniciarSesion() {
         <div class="footer-brand">
           <p>ACCESO INSTITUCIONAL</p>
           <div class="institutional-row">
-            <img
-              alt="FCE Logo"
-              src="/fce-logo.png"
-            />
+            <img alt="FCE Logo" src="/fce-logo.png" />
             <span>Facultad de Ciencias Económicas</span>
           </div>
         </div>
@@ -172,7 +196,11 @@ async function iniciarSesion() {
 
 :global(.material-symbols-outlined) {
   font-family: 'Material Symbols Outlined', sans-serif;
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
 }
 
 .page-shell {
@@ -187,7 +215,9 @@ async function iniciarSesion() {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  font-feature-settings: 'rlig' 1, 'calt' 1;
+  font-feature-settings:
+    'rlig' 1,
+    'calt' 1;
 }
 
 .background-layer {
@@ -210,6 +240,26 @@ async function iniciarSesion() {
   position: absolute;
   inset: 0;
   background: rgba(255, 255, 255, 0.72);
+}
+
+.theme-toggle {
+  position: fixed;
+  z-index: 3;
+  top: 1.25rem;
+  right: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid rgba(40, 58, 112, 0.16);
+  border-radius: 999px;
+  color: #283a70;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 8px 25px rgba(15, 35, 89, 0.1);
+  backdrop-filter: blur(14px);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 700;
 }
 
 .login-frame {
@@ -280,7 +330,7 @@ async function iniciarSesion() {
   background: rgba(255, 255, 255, 0.98);
   border: 1px solid rgba(117, 118, 129, 0.16);
   border-radius: 1rem;
-  box-shadow: 0 18px 34px rgba(33, 47, 76, 0.10);
+  box-shadow: 0 18px 34px rgba(33, 47, 76, 0.1);
   padding: 2.2rem 2rem 1.4rem;
 }
 
@@ -342,7 +392,9 @@ async function iniciarSesion() {
   font-size: 0.95rem;
   padding: 0.8rem 2.8rem 0.8rem 2.75rem;
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .input-wrap input::placeholder {
@@ -352,6 +404,7 @@ async function iniciarSesion() {
 .input-wrap input:focus {
   border-color: rgba(40, 58, 112, 0.8);
   box-shadow: 0 0 0 3px rgba(40, 58, 112, 0.12);
+}
 
 /* better focus visibility for keyboard users */
 .input-wrap input:focus-visible,
@@ -360,7 +413,6 @@ async function iniciarSesion() {
 .remember-box:focus-visible {
   outline: 3px solid rgba(40, 58, 112, 0.12);
   outline-offset: 2px;
-}
 }
 
 .password-toggle {
@@ -464,7 +516,9 @@ async function iniciarSesion() {
   font-size: 1.05rem;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.15s ease, filter 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    filter 0.15s ease;
   box-shadow: 0 10px 18px rgba(64, 81, 137, 0.22);
 }
 
@@ -543,6 +597,121 @@ async function iniciarSesion() {
   text-decoration: underline;
 }
 
+:global(.dark) .page-shell {
+  background: #070c17;
+  color: rgb(var(--on-surface));
+}
+
+:global(.dark) .background-image {
+  filter: saturate(0.72) brightness(0.34) contrast(1.08);
+  transform: scale(1.04);
+}
+
+:global(.dark) .backdrop {
+  background:
+    radial-gradient(circle at 50% 20%, rgba(69, 102, 190, 0.3), transparent 36rem),
+    linear-gradient(135deg, rgba(3, 9, 23, 0.76), rgba(7, 16, 35, 0.88));
+}
+
+:global(.dark) .theme-toggle {
+  color: rgb(var(--primary));
+  background: rgba(16, 25, 43, 0.76);
+  border-color: rgb(var(--primary) / 0.22);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.28),
+    0 0 22px rgb(var(--primary) / 0.08);
+}
+
+:global(.dark) .theme-toggle:hover {
+  border-color: rgb(var(--secondary) / 0.55);
+  color: rgb(var(--secondary));
+}
+
+:global(.dark) .brand-badge {
+  background: rgba(17, 27, 47, 0.88);
+  border-color: rgb(var(--primary) / 0.3);
+  box-shadow:
+    0 18px 45px rgba(0, 0, 0, 0.38),
+    0 0 35px rgb(var(--primary) / 0.12);
+}
+
+:global(.dark) .brand-wrap h1 {
+  color: #c7d4ff;
+  text-shadow: 0 0 28px rgba(132, 162, 255, 0.22);
+  -webkit-text-stroke: 0;
+}
+
+:global(.dark) .brand-wrap p {
+  color: rgb(var(--secondary));
+}
+
+:global(.dark) .login-card {
+  background: linear-gradient(145deg, rgba(22, 32, 53, 0.94), rgba(11, 19, 34, 0.92));
+  border-color: rgb(var(--primary) / 0.2);
+  box-shadow:
+    0 30px 75px rgba(0, 0, 0, 0.5),
+    inset 0 1px rgba(255, 255, 255, 0.06),
+    0 0 60px rgba(52, 83, 160, 0.12);
+  backdrop-filter: blur(24px) saturate(125%);
+}
+
+:global(.dark) .card-header h2,
+:global(.dark) .field-group label {
+  color: rgb(var(--on-surface));
+}
+
+:global(.dark) .input-wrap input {
+  background: rgba(8, 15, 29, 0.72) !important;
+  border-color: rgb(var(--outline-variant) / 0.8) !important;
+  color: rgb(var(--on-surface)) !important;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.025);
+}
+
+:global(.dark) .input-wrap input:focus {
+  border-color: rgb(var(--primary) / 0.85) !important;
+  box-shadow:
+    0 0 0 3px rgb(var(--primary) / 0.13),
+    0 0 28px rgb(var(--primary) / 0.08) !important;
+}
+
+:global(.dark) .password-toggle,
+:global(.dark) .remember-box,
+:global(.dark) .helper-text,
+:global(.dark) .footer-brand p,
+:global(.dark) .institutional-row,
+:global(.dark) .site-footer,
+:global(.dark) .footer-links a {
+  color: rgb(var(--on-surface-variant));
+}
+
+:global(.dark) .checkbox-wrap input {
+  background: rgb(var(--surface-container-low));
+  border-color: rgb(var(--outline));
+}
+
+:global(.dark) .checkbox-wrap input:checked {
+  background: rgb(var(--secondary));
+  border-color: rgb(var(--secondary));
+}
+
+:global(.dark) .submit-button {
+  background: linear-gradient(110deg, #405da8, #32477f 60%, #187e73);
+  box-shadow:
+    0 14px 30px rgba(20, 48, 112, 0.4),
+    0 0 25px rgb(var(--primary) / 0.12);
+}
+
+:global(.dark) .submit-button:hover {
+  filter: brightness(1.13);
+  box-shadow:
+    0 16px 36px rgba(20, 48, 112, 0.48),
+    0 0 30px rgb(var(--secondary) / 0.14);
+}
+
+:global(.dark) .footer-brand {
+  border-color: rgb(var(--outline-variant) / 0.65);
+}
+
 @media (max-width: 520px) {
   .login-card {
     padding: 1.3rem 1rem 1rem;
@@ -564,6 +733,8 @@ async function iniciarSesion() {
 
   .brand-wrap h1 {
     font-size: 1.9rem;
+  }
+
   .brand-badge {
     width: 5.2rem;
     height: 5.2rem;
@@ -575,7 +746,20 @@ async function iniciarSesion() {
   .login-card {
     max-width: 92vw;
   }
+
+  .theme-toggle {
+    top: 0.75rem;
+    right: 0.75rem;
+    width: 2.7rem;
+    height: 2.7rem;
+    justify-content: center;
+    padding: 0;
   }
+
+  .theme-toggle span:last-child {
+    display: none;
+  }
+}
 
 @media (min-width: 1024px) {
   .login-frame {
@@ -585,6 +769,5 @@ async function iniciarSesion() {
     width: clamp(88px, 9.5vw, 112px);
     height: clamp(88px, 9.5vw, 112px);
   }
-}
 }
 </style>

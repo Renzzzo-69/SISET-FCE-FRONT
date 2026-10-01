@@ -1,12 +1,21 @@
 ﻿<script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { RouterLink, RouterView, useRouter } from 'vue-router'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const cerrandoSesion = ref(false)
+const menuAbierto = ref(false)
+
+watch(
+  () => route.fullPath,
+  () => {
+    menuAbierto.value = false
+  },
+)
 
 watch(
   () => auth.autenticado,
@@ -20,6 +29,12 @@ watch(
 const etiquetaExpedientes = computed(() =>
   auth.tieneRol('administrador', 'udi', 'decanatura') ? 'Expedientes' : 'Mis expedientes',
 )
+const tituloModulo = computed(() => {
+  if (auth.tieneRol('administrador')) return 'Administración'
+  if (auth.tieneRol('udi')) return 'UDI'
+  if (auth.tieneRol('tesista')) return 'Tesista'
+  return 'SISET-FCE'
+})
 
 async function cerrarSesion() {
   cerrandoSesion.value = true
@@ -30,7 +45,9 @@ async function cerrarSesion() {
 
 <template>
   <div class="app-shell">
-    <aside class="sidebar">
+    <div v-if="menuAbierto" class="mobile-overlay" @click="menuAbierto = false"></div>
+
+    <aside class="sidebar" :class="{ 'is-open': menuAbierto }">
       <div class="brand-box">
         <div class="brand-mark">
           <img
@@ -57,7 +74,7 @@ async function cerrarSesion() {
           <span>{{ etiquetaExpedientes }}</span>
         </RouterLink>
 
-        <RouterLink class="nav-item" :to="{ name: 'dashboard' }">
+        <RouterLink class="nav-item" :to="{ name: 'configuracion' }">
           <span class="material-symbols-outlined">settings</span>
           <span>Configuración</span>
         </RouterLink>
@@ -71,7 +88,15 @@ async function cerrarSesion() {
 
     <header class="topbar">
       <div class="page-title">
-        <h2>Docente</h2>
+        <button
+          class="mobile-menu"
+          type="button"
+          aria-label="Abrir menú principal"
+          @click="menuAbierto = true"
+        >
+          <span class="material-symbols-outlined">menu</span>
+        </button>
+        <h2>{{ tituloModulo }}</h2>
       </div>
 
       <div class="session-panel">
@@ -113,6 +138,69 @@ body {
   background: #f9f9ff;
 }
 
+.dark body {
+  color: rgb(var(--on-surface));
+  background: rgb(var(--background));
+}
+
+.dark .app-shell {
+  color: rgb(var(--on-surface));
+  background: transparent;
+}
+
+.dark .topbar {
+  background: rgb(var(--surface) / 0.84);
+  border-color: rgb(var(--outline-variant) / 0.65);
+  backdrop-filter: blur(18px) saturate(135%);
+  box-shadow:
+    0 1px 0 rgb(var(--primary) / 0.08),
+    0 10px 30px rgb(0 0 0 / 0.16);
+}
+
+.dark .page-title h2,
+.dark .welcome {
+  color: rgb(var(--primary));
+}
+
+.dark .user-email,
+.dark .icon-button {
+  color: rgb(var(--on-surface-variant));
+}
+
+.dark aside.bg-primary {
+  background-color: rgb(var(--sidebar-bg)) !important;
+}
+
+.dark .sidebar {
+  background: linear-gradient(
+    165deg,
+    rgb(var(--primary-container) / 0.72),
+    rgb(var(--sidebar-bg)) 40%,
+    rgb(5 15 35)
+  );
+  box-shadow:
+    10px 0 40px rgb(0 0 0 / 0.28),
+    inset -1px 0 rgb(var(--primary) / 0.1);
+}
+
+.dark .nav-item:hover {
+  background: rgb(var(--primary) / 0.1);
+}
+
+.dark .nav-item.is-active,
+.dark .nav-item.router-link-active {
+  background: linear-gradient(90deg, rgb(var(--primary) / 0.2), rgb(var(--primary) / 0.08));
+  box-shadow:
+    inset 3px 0 rgb(var(--secondary)),
+    0 8px 20px rgb(0 0 0 / 0.14);
+}
+
+.dark .logout-button {
+  background: rgb(var(--secondary-container));
+  color: rgb(var(--on-secondary-container));
+  box-shadow: 0 8px 24px rgb(var(--secondary) / 0.15);
+}
+
 button,
 input {
   font: inherit;
@@ -121,7 +209,11 @@ input {
 .material-symbols-outlined {
   font-family: 'Material Symbols Outlined', sans-serif;
   font-size: 22px;
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
 }
 
 .app-shell {
@@ -130,6 +222,11 @@ input {
   grid-template-rows: 70px 1fr;
   min-height: 100vh;
   background: #f9f9ff;
+}
+
+.mobile-menu,
+.mobile-overlay {
+  display: none;
 }
 
 .sidebar {
@@ -261,6 +358,13 @@ input {
   font-weight: 700;
 }
 
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
 .session-panel {
   display: flex;
   align-items: center;
@@ -309,11 +413,46 @@ input {
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: 64px 1fr;
   }
 
   .sidebar {
-    grid-row: auto;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 80;
+    width: min(86vw, 280px);
+    height: 100dvh;
     padding: 1rem;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    overflow-y: auto;
+    box-shadow: 12px 0 35px rgba(9, 20, 50, 0.25);
+  }
+
+  .sidebar.is-open {
+    transform: translateX(0);
+  }
+
+  .mobile-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    background: rgba(0, 0, 0, 0.45);
+  }
+
+  .mobile-menu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    border: 0;
+    border-radius: 10px;
+    color: #0f2359;
+    background: transparent;
+    cursor: pointer;
   }
 
   .topbar,
@@ -327,6 +466,24 @@ input {
 
   .content {
     padding: 1rem;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+}
+
+@media (max-width: 520px) {
+  .user-meta {
+    display: none;
+  }
+
+  .topbar {
+    gap: 0.5rem;
+  }
+
+  .page-title h2 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 </style>
