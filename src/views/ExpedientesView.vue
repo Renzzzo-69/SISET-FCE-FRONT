@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import type { Expediente } from '@/types/api'
+import MiExpediente from '@/components/MiExpediente.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -14,6 +15,7 @@ const cargando = ref(false)
 const mensajeError = ref('')
 const puedeCrear = computed(() => auth.tieneRol('tesista'))
 const puedeGestionarRevisionUdi = computed(() => auth.tieneRol('udi', 'administrador'))
+const esTesista = computed(() => puedeCrear.value && !puedeGestionarRevisionUdi.value)
 
 async function cargarExpedientes() {
   cargando.value = true
@@ -32,11 +34,14 @@ async function cargarExpedientes() {
   }
 }
 
-onMounted(cargarExpedientes)
+onMounted(() => {
+  if (!esTesista.value) cargarExpedientes()
+})
 </script>
 
 <template>
-  <section>
+  <MiExpediente v-if="esTesista" />
+  <section v-else>
     <div class="heading">
       <div>
         <h1>Expedientes</h1>

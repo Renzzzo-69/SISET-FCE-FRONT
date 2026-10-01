@@ -7,6 +7,14 @@ import ExpedienteDetalleView from '@/views/ExpedienteDetalleView.vue'
 import ExpedientesView from '@/views/ExpedientesView.vue'
 import LoginView from '@/views/LoginView.vue'
 import PanelView from '@/views/PanelView.vue'
+import ObservacionesView from '@/views/ObservacionesView.vue'
+import TesisFinalView from '@/views/TesisFinalView.vue'
+import DocumentosView from '@/views/DocumentosView.vue'
+import FormatosView from '@/views/FormatosView.vue'
+import NotificacionesView from '@/views/NotificacionesView.vue'
+import PerfilView from '@/views/PerfilView.vue'
+import AgendaView from '@/views/AgendaView.vue'
+import AsesorJuradosView from '@/views/AsesorJuradosView.vue'
 import UdiExpedientesView from '@/views/UdiExpedientesView.vue'
 import UdiRevisionView from '@/views/UdiRevisionView.vue'
 
@@ -32,6 +40,46 @@ const router = createRouter({
           path: 'dashboard',
           name: 'dashboard',
           component: PanelView,
+        },
+        {
+          path: 'asesor-jurados',
+          name: 'asesor-jurados',
+          component: AsesorJuradosView,
+        },
+        {
+          path: 'agenda',
+          name: 'agenda',
+          component: AgendaView,
+        },
+        {
+          path: 'perfil',
+          name: 'perfil',
+          component: PerfilView,
+        },
+        {
+          path: 'notificaciones',
+          name: 'notificaciones',
+          component: NotificacionesView,
+        },
+        {
+          path: 'formatos',
+          name: 'formatos',
+          component: FormatosView,
+        },
+        {
+          path: 'documentos',
+          name: 'documentos',
+          component: DocumentosView,
+        },
+        {
+          path: 'tesis-final',
+          name: 'tesis-final',
+          component: TesisFinalView,
+        },
+        {
+          path: 'observaciones',
+          name: 'observaciones',
+          component: ObservacionesView,
         },
         {
           path: 'expedientes',
@@ -80,6 +128,26 @@ router.beforeEach(async (to) => {
 
   if (to.meta.soloInvitado && auth.autenticado) {
     return { name: 'dashboard' }
+  }
+
+  if (
+    to.meta.requiereAutenticacion &&
+    auth.autenticado &&
+    auth.tieneRol('tesista') &&
+    !auth.tieneRol('udi', 'administrador')
+  ) {
+    if (auth.tieneExpediente === null) await auth.actualizarExpediente()
+    if (!auth.autenticado) return { name: 'login' }
+    if (!auth.moduloTesistaDisponible(String(to.name))) {
+      return {
+        name:
+          auth.tieneExpediente === null
+            ? 'perfil'
+            : auth.tieneExpediente
+              ? 'dashboard'
+              : 'expedientes-nuevo',
+      }
+    }
   }
 
   return true

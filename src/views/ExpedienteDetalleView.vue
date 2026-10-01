@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -504,7 +504,20 @@ async function presentarSubsanacion(observacion: ObservacionDocumentaria) {
   }
 }
 
-onMounted(cargarDetalle)
+onMounted(async () => {
+  await cargarDetalle()
+  if (route.query.registrar === 'tesis-final' && puedeRegistrarTesisFinal.value && esTesistaPropietario.value) {
+    tipoInforme.value = 1
+    await abrirFormularioInforme()
+  }
+  if (route.query.registrar === 'documento' && puedeRegistrarInforme.value) {
+    await abrirFormularioInforme()
+  }
+  await nextTick()
+  if (['#informes', '#observaciones', '#historial'].includes(route.hash)) {
+    document.getElementById(route.hash.slice(1))?.scrollIntoView({ block: 'start' })
+  }
+})
 </script>
 
 <template>
@@ -514,7 +527,7 @@ onMounted(cargarDetalle)
         <h1>Detalle de expediente</h1>
         <p v-if="detalle">Expediente {{ detalle.cod_expediente }}</p>
       </div>
-      <button type="button" @click="router.push({ name: 'expedientes' })">Volver al listado</button>
+      <button type="button" @click="router.push({ name: 'expedientes' })">{{ auth.tieneRol('tesista') && !auth.tieneRol('udi', 'administrador') ? 'Volver a Mi Expediente' : 'Volver al listado' }}</button>
     </div>
 
     <p v-if="cargando" class="status">Cargando detalle del expediente…</p>
@@ -566,7 +579,7 @@ onMounted(cargarDetalle)
         </section>
       </div>
 
-      <section class="card section">
+      <section id="informes" class="card section">
         <div class="section-heading">
           <h2>Informes</h2>
           <div v-if="puedeRegistrarInforme" class="actions">
@@ -708,7 +721,7 @@ onMounted(cargarDetalle)
         <p v-else class="muted">No hay informes registrados.</p>
       </section>
 
-      <section class="card section">
+      <section id="historial" class="card section">
         <h2>Historial</h2>
         <ol v-if="historialOrdenado.length" class="timeline">
           <li v-for="evento in historialOrdenado" :key="evento.id_historial">
@@ -749,7 +762,7 @@ onMounted(cargarDetalle)
         <p v-else class="muted">No hay una revisión documentaria activa.</p>
       </section>
 
-      <section class="card section">
+      <section id="observaciones" class="card section">
         <h2>Observaciones documentarias</h2>
         <p v-if="!revision?.revision" class="muted">No hay observaciones documentarias para mostrar.</p>
 

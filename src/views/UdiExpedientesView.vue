@@ -177,10 +177,10 @@ onMounted(cargarExpedientes)
           <span>N.º de expediente</span>
           <input
             v-model.trim="filtros.codigo"
-            type="number"
-            min="1"
-            inputmode="numeric"
-            placeholder="Ej. 123"
+            type="text"
+            inputmode="text"
+            pattern="[A-Za-z0-9-]+"
+            placeholder="Ej. EXP-2026A"
             :disabled="cargando"
           />
         </label>
@@ -336,9 +336,8 @@ onMounted(cargarExpedientes)
 <style scoped>
 .udi-inbox {
   display: grid;
-  width: min(100%, 90rem);
+  width: 100%;
   gap: var(--siset-space-6);
-  margin: 0 auto;
 }
 
 .inbox-heading {
