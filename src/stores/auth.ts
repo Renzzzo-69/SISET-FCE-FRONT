@@ -45,7 +45,10 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   const autenticado = computed(() => token.value !== null && usuario.value !== null)
-  const codigosRol = computed(() => usuario.value?.roles.map((rol) => rol.codigo) ?? [])
+  const codigosRol = computed(() => usuario.value?.roles.map((rol) => {
+    const codigo = rol.codigo.toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-\s]+/g, '_')
+    return codigo === 'secretria_academica' ? 'secretaria_academica' : codigo
+  }) ?? [])
 
   function guardarToken(nuevoToken: string) {
     token.value = nuevoToken
