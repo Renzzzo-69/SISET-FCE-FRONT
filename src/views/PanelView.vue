@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { RouterLink } from 'vue-router'
+import TesistaPanel from '@/components/TesistaPanel.vue'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import type { Expediente, ParticipanteExpediente } from '@/types/api'
@@ -29,23 +30,6 @@ const metricas = computed(() => ({
 const expedientesAtencion = computed(() =>
   expedientes.value.filter((expediente) => ESTADOS_ATENCION.has(expediente.estado_actual?.codigo ?? '')).slice(0, 5),
 )
-const distribucionEstados = computed(() => {
-  const resumen = new Map<string, { codigo: string; etiqueta: string; total: number }>()
-  for (const expediente of expedientes.value) {
-    const codigo = expediente.estado_actual?.codigo ?? 'sin_estado'
-    const existente = resumen.get(codigo)
-    if (existente) {
-      existente.total += 1
-    } else {
-      resumen.set(codigo, {
-        codigo,
-        etiqueta: expediente.estado_actual?.nombre ?? 'Sin estado informado',
-        total: 1,
-      })
-    }
-  }
-  return [...resumen.values()].sort((primero, segundo) => segundo.total - primero.total)
-})
 function nombreParticipante(participante: ParticipanteExpediente | null) {
   if (!participante) return 'Sin tesista registrado'
   return [participante.apellido_paterno, participante.apellido_materno, participante.nombres].filter(Boolean).join(' ')
@@ -82,7 +66,7 @@ onMounted(cargarDashboard)
       <header class="dashboard-heading">
         <div>
           <p class="eyebrow">Unidad de Investigación</p>
-          <h1 id="dashboard-title">Panel UDI</h1>
+          <h1 id="dashboard-title">Bienvenido al Panel UDI</h1>
           <p class="intro">Gestión de expedientes disponibles para su cuenta.</p>
         </div>
         <button class="dashboard-update" type="button" :disabled="cargando" @click="cargarDashboard">
@@ -100,28 +84,28 @@ onMounted(cargarDashboard)
           <article class="metric-card primary">
             <div class="metric-copy">
               <p>Expedientes visibles</p>
-              <strong>{{ metricas.expedientesVisibles }}</strong>
+              <strong>{{ metricas.expedientesVisibles }}</strong><small><span class="material-symbols-outlined" aria-hidden="true">folder_open</span> Total disponible</small>
             </div>
-            <span class="metric-icon material-symbols-outlined" aria-hidden="true">folder_open</span>
+            <span class="metric-icon material-symbols-outlined" aria-hidden="true">assignment</span>
           </article>
           <article class="metric-card secondary">
             <div class="metric-copy">
               <p>Requieren atención</p>
-              <strong>{{ metricas.requierenAtencion }}</strong>
+              <strong>{{ metricas.requierenAtencion }}</strong><small><span class="material-symbols-outlined" aria-hidden="true">pending_actions</span> Pendientes de gesti?n</small>
             </div>
-            <span class="metric-icon material-symbols-outlined" aria-hidden="true">notification_important</span>
+            <span class="metric-icon material-symbols-outlined" aria-hidden="true">school</span>
           </article>
           <article class="metric-card warning">
             <div class="metric-copy">
               <p>En revisión</p>
-              <strong>{{ metricas.enRevision }}</strong>
+              <strong>{{ metricas.enRevision }}</strong><small><span class="material-symbols-outlined" aria-hidden="true">sync</span> Proceso activo</small>
             </div>
-            <span class="metric-icon material-symbols-outlined" aria-hidden="true">rate_review</span>
+            <span class="metric-icon material-symbols-outlined" aria-hidden="true">visibility</span>
           </article>
           <article class="metric-card error-card">
             <div class="metric-copy">
               <p>Observados</p>
-              <strong>{{ metricas.observados }}</strong>
+              <strong>{{ metricas.observados }}</strong><small><span class="material-symbols-outlined" aria-hidden="true">warning</span> Requiere atenci?n</small>
             </div>
             <span class="metric-icon material-symbols-outlined" aria-hidden="true">report</span>
           </article>
@@ -136,50 +120,33 @@ onMounted(cargarDashboard)
               <RouterLink class="text-action" :to="{ name: 'udi-expedientes' }">Ver todos</RouterLink>
             </div>
             <div v-if="expedientesAtencion.length" class="attention-list">
-              <article v-for="expediente in expedientesAtencion" :key="expediente.id_expediente" class="attention-item">
-                <span class="expediente-code">{{ expediente.cod_expediente }}</span>
+              <RouterLink v-for="expediente in expedientesAtencion" :key="expediente.id_expediente" class="attention-item" :to="{ name: 'udi-revision', params: { id: expediente.id_expediente } }">
+                <span class="expediente-code material-symbols-outlined" aria-hidden="true">description</span>
                 <div class="attention-details">
-                  <h3>Expediente {{ expediente.cod_expediente }}</h3>
-                  <p>{{ nombreParticipante(expediente.tesista) }}</p>
+                  <h3>{{ expediente.cod_expediente }}: {{ expediente.etapa?.nombre ?? 'Revisi?n de expediente' }}</h3>
+                  <p>Tesista: {{ nombreParticipante(expediente.tesista) }}</p>
                   <span class="status-label">{{ expediente.estado_actual?.nombre ?? 'Sin estado informado' }}</span>
                 </div>
-                <RouterLink
-                  class="manage-action"
-                  :to="{ name: 'udi-revision', params: { id: expediente.id_expediente } }"
-                >
-                  Gestionar
-                </RouterLink>
-              </article>
+              </RouterLink>
             </div>
             <div v-else class="panel-empty">
               <span class="material-symbols-outlined" aria-hidden="true">inbox</span>
               <p>No hay expedientes visibles que requieran atención operativa.</p>
             </div>
           </section>
-          <section class="dashboard-panel distribution-section" aria-labelledby="distribution-title">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">Resumen del listado</p>
-                <h2 id="distribution-title">Distribución por estado</h2>
-              </div>
-              <span v-if="distribucionEstados.length" class="material-symbols-outlined section-icon" aria-hidden="true">
-                donut_small
-              </span>
+          <section class="dashboard-panel activity-section" aria-labelledby="activity-title">
+            <h2 id="activity-title"><span class="material-symbols-outlined" aria-hidden="true">history</span> Actividad reciente</h2>
+            <div class="activity-empty">
+              <span class="material-symbols-outlined" aria-hidden="true">history</span>
+              <p>La actividad reciente a?n no est? disponible.</p>
+              <small>Puede consultar el historial dentro de cada expediente.</small>
             </div>
-            <ul v-if="distribucionEstados.length" class="distribution-list">
-              <li v-for="estado in distribucionEstados" :key="estado.codigo">
-                <span>{{ estado.etiqueta }}</span>
-                <strong>{{ estado.total }}</strong>
-              </li>
-            </ul>
-            <div v-else class="panel-empty">
-              <span class="material-symbols-outlined" aria-hidden="true">donut_small</span>
-              <p>No hay expedientes visibles para resumir.</p>
-            </div>
+            <RouterLink class="activity-action" :to="{ name: 'udi-expedientes' }">Consultar expedientes</RouterLink>
           </section>
         </div>
       </template>
     </section>
+    <TesistaPanel v-else-if="auth.tieneRol('tesista')" />
     <section v-else class="session-summary">
       <h1>Dashboard</h1>
       <p class="intro">Bienvenido, {{ auth.usuario?.correo_electronico }}.</p>
@@ -192,281 +159,63 @@ onMounted(cargarDashboard)
   </div>
 </template>
 <style scoped>
-.panel-view {
-  width: min(100%, 90rem);
-  margin: 0 auto;
-}
-.udi-dashboard,
-.session-summary {
-  display: grid;
-  gap: var(--siset-space-6);
-}
-.dashboard-heading,
-.section-heading,
-.attention-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--siset-space-4);
-}
-h1,
-h2,
-h3,
-p {
-  margin: 0;
-}
-h1 {
-  color: var(--siset-color-primary);
-}
-h2,
-h3 {
-  color: var(--siset-color-text);
-}
-.eyebrow {
-  color: var(--siset-color-text-muted);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.intro,
-.attention-details p {
-  margin-top: var(--siset-space-1);
-  color: var(--siset-color-text-muted);
-}
-button,
-.manage-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--siset-space-2);
-  padding: var(--siset-space-2) var(--siset-space-4);
-  color: var(--siset-color-surface);
-  font-weight: 700;
-  text-decoration: none;
-  background: var(--siset-color-primary);
-  border: 0;
-  border-radius: var(--siset-radius-lg);
-}
-button:hover,
-.manage-action:hover {
-  background: var(--siset-color-primary-container);
-}
-.dashboard-update {
-  color: var(--siset-color-primary);
-  background: var(--siset-color-surface);
-  border: 1px solid var(--siset-color-border-strong);
-}
-.dashboard-update:hover {
-  background: var(--siset-color-surface-muted);
-}
-button:disabled {
-  opacity: 0.65;
-}
-.state,
-.message,
-.session-card {
-  padding: var(--siset-space-4);
-  border-radius: var(--siset-radius-lg);
-}
-.state,
-.panel-empty {
-  color: var(--siset-color-text-muted);
-  background: var(--siset-color-surface-muted);
-}
-.message {
-  color: var(--siset-color-error);
-  background: var(--siset-color-error-container);
-}
-.message button {
-  margin-top: var(--siset-space-3);
-}
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--siset-space-4);
-}
-.metric-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--siset-space-4);
-  padding: var(--siset-space-5);
-  background: var(--siset-color-surface);
-  border-left: var(--siset-space-1) solid var(--siset-color-primary);
-  border-radius: var(--siset-radius-xl);
-  box-shadow: var(--siset-shadow-sm);
-}
-.metric-copy {
-  display: grid;
-  gap: var(--siset-space-1);
-}
-.metric-card p {
-  color: var(--siset-color-text-muted);
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-.metric-card strong {
-  color: var(--siset-color-text);
-  font-family: var(--siset-font-heading);
-  font-size: 1.75rem;
-}
-.metric-icon {
-  display: grid;
-  flex: 0 0 auto;
-  width: var(--siset-space-10);
-  height: var(--siset-space-10);
-  place-items: center;
-  color: var(--siset-color-primary);
-  background: var(--siset-color-surface-muted);
-  border-radius: var(--siset-radius-xl);
-}
-.metric-card.secondary {
-  border-left-color: var(--siset-color-secondary);
-}
-.metric-card.secondary .metric-icon {
-  color: var(--siset-color-secondary);
-  background: var(--siset-color-secondary-container);
-}
-.metric-card.warning {
-  border-left-color: var(--siset-color-warning);
-}
-.metric-card.warning .metric-icon {
-  color: var(--siset-color-warning);
-  background: var(--siset-color-warning-container);
-}
-.metric-card.error-card {
-  border-left-color: var(--siset-color-error);
-}
-.metric-card.error-card .metric-icon {
-  color: var(--siset-color-error);
-  background: var(--siset-color-error-container);
-}
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
-  gap: var(--siset-space-6);
-}
-.dashboard-panel,
-.session-card {
-  display: grid;
-  gap: var(--siset-space-4);
-  background: var(--siset-color-surface);
-  border: 1px solid var(--siset-color-border);
-  border-radius: var(--siset-radius-xl);
-  box-shadow: var(--siset-shadow-sm);
-}
-.dashboard-panel {
-  padding: var(--siset-space-5);
-}
-.text-action {
-  color: var(--siset-color-primary);
-  font-weight: 700;
-}
-.attention-list {
-  display: grid;
-  gap: var(--siset-space-3);
-}
-.attention-item {
-  padding: var(--siset-space-4);
-  background: var(--siset-color-surface-muted);
-  border: 1px solid var(--siset-color-border);
-  border-radius: var(--siset-radius-lg);
-}
-.expediente-code {
-  display: grid;
-  flex: 0 0 auto;
-  width: var(--siset-space-12);
-  height: var(--siset-space-12);
-  place-items: center;
-  color: var(--siset-color-primary);
-  font-weight: 700;
-  background: var(--siset-color-secondary-container);
-  border-radius: var(--siset-radius-lg);
-}
-.attention-details {
-  flex: 1;
-  min-width: 0;
-}
-.status-label {
-  display: inline-block;
-  margin-top: var(--siset-space-2);
-  padding: var(--siset-space-1) var(--siset-space-2);
-  color: var(--siset-color-primary);
-  font-size: 0.75rem;
-  font-weight: 700;
-  background: var(--siset-color-surface);
-  border: 1px solid var(--siset-color-border);
-  border-radius: var(--siset-radius-xl);
-}
-.distribution-section {
-  align-content: start;
-}
-.panel-empty {
-  display: grid;
-  min-height: 12rem;
-  place-items: center;
-  gap: var(--siset-space-2);
-  padding: var(--siset-space-5);
-  text-align: center;
-  border-radius: var(--siset-radius-lg);
-}
-.panel-empty .material-symbols-outlined {
-  color: var(--siset-color-secondary);
-  font-size: 2rem;
-}
-.section-icon {
-  color: var(--siset-color-secondary);
-}
-.distribution-list {
-  display: grid;
-  gap: var(--siset-space-2);
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-.distribution-list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--siset-space-3);
-  padding: var(--siset-space-3) 0;
-  color: var(--siset-color-text-muted);
-  border-bottom: 1px solid var(--siset-color-border);
-}
-.distribution-list li:last-child {
-  border-bottom: 0;
-}
-.distribution-list strong {
-  color: var(--siset-color-primary);
-  font-family: var(--siset-font-heading);
-}
-.session-summary {
-  max-width: 35rem;
-}
-@media (max-width: 64rem) {
-  .metrics-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 48rem) {
-  .dashboard-heading,
-  .section-heading,
-  .attention-item {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .dashboard-heading button,
-  .manage-action {
-    width: 100%;
-  }
-  .metrics-grid,
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
-  .expediente-code {
-    width: auto;
-  }
+.panel-view { width: 100%; }
+.udi-dashboard, .session-summary { display: grid; gap: 32px; }
+h1, h2, h3, p { margin: 0; }
+h1 { color: #283a70; font-size: 28px; line-height: 36px; }
+.intro { color: #45464f; font-size: 14px; line-height: 20px; }
+.dashboard-heading, .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.dashboard-update { display: inline-flex; align-items: center; gap: 6px; padding: 6px; color: #283a70; background: transparent; border: 0; font-size: 12px; }
+.dashboard-update .material-symbols-outlined { font-size: 18px; }
+.metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; margin-bottom: 8px; }
+.metric-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 156px; padding: 24px; background: white; border-left: 4px solid #283a70; border-radius: 8px; box-shadow: 0 2px 4px #0000000d; }
+.metric-copy { min-width: 0; }
+.metric-copy p { color: #45464f; font-size: 12px; line-height: 16px; font-weight: 700; text-transform: uppercase; }
+.metric-copy strong { display: block; font-family: var(--siset-font-heading); font-size: 28px; line-height: 36px; }
+.metric-copy small { display: flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 11px; line-height: 14px; color: #006b5c; font-weight: 700; }
+.metric-copy small .material-symbols-outlined { font-size: 16px; }
+.metric-icon { display: grid; place-items: center; flex: 0 0 56px; height: 56px; font-size: 32px; border-radius: 12px; color: #283a70; background: #283a701a; }
+.secondary { border-left-color: #006b5c; }
+.secondary .metric-icon { color: #006b5c; background: #006b5c1a; }
+.warning { border-left-color: #e8c26d; }
+.warning .metric-icon { color: #4e3a00; background: #ffdf9b4d; }
+.warning small { color: #45464f; }
+.error-card { border-left-color: #ba1a1a; }
+.error-card .metric-icon { color: #ba1a1a; background: #ffdad6; }
+.error-card small { color: #ba1a1a; }
+.dashboard-grid { display: grid; grid-template-columns: minmax(0, 2.1fr) minmax(260px, 1fr); gap: 32px; align-items: start; }
+h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; line-height: 24px; font-weight: 600; }
+h2 .material-symbols-outlined { color: #283a70; }
+.text-action { color: #283a70; font-size: 12px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.attention-list { display: grid; gap: 16px; margin-top: 16px; }
+.attention-item { display: flex; align-items: flex-start; gap: 16px; padding: 20px; min-height: 112px; border: 1px solid #c5c6d1; border-radius: 8px; background: white; box-shadow: 0 1px 2px #0000000d; text-decoration: none; }
+.attention-item:hover { border-color: #283a70; }
+.expediente-code { display: grid; place-items: center; flex: 0 0 48px; height: 48px; background: #dce1ff; color: #283a70; border-radius: 4px; }
+.attention-details { min-width: 0; }
+h3 { font-size: 16px; line-height: 24px; overflow-wrap: anywhere; }
+.attention-details p { color: #45464f; font-size: 14px; line-height: 20px; margin-top: 2px; }
+.status-label { display: inline-block; margin-top: 8px; padding: 2px 10px; background: #283a701a; color: #283a70; border: 1px solid #c5c6d1; border-radius: 12px; font-size: 11px; line-height: 14px; font-weight: 700; }
+.activity-section { display: flex; flex-direction: column; gap: 32px; min-height: 420px; padding: 24px; background: white; border: 1px solid #c5c6d1; border-radius: 8px; box-shadow: 0 1px 2px #0000000d; }
+.activity-section h2 .material-symbols-outlined { color: #006b5c; }
+.activity-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 12px; color: #45464f; font-size: 14px; }
+.activity-empty > span { color: #006b5c; font-size: 32px; }
+.activity-empty small { font-size: 12px; }
+.activity-action { padding: 12px; border: 1px solid #757681; border-radius: 8px; text-align: center; text-decoration: none; font-size: 12px; font-weight: 700; }
+.activity-action:hover { background: #f3f3f9; }
+.panel-empty, .state, .message, .session-card { padding: 24px; border-radius: 8px; }
+.panel-empty { margin-top: 16px; background: white; color: #45464f; border: 1px solid #c5c6d1; }
+.message { color: #ba1a1a; background: #ffdad6; }
+.session-summary { max-width: 560px; }
+@media (max-width: 1150px) { .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .dashboard-grid { grid-template-columns: 1fr; } .activity-section { min-height: 280px; } }
+@media (max-width: 540px) {
+  .udi-dashboard { gap: 24px; }
+  .dashboard-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+  h1 { font-size: 24px; line-height: 30px; }
+  .metrics-grid { gap: 12px; }
+  .metric-card { padding: 16px 12px; min-height: 150px; gap: 8px; flex-wrap: wrap; }
+  .metric-icon { flex-basis: 36px; height: 36px; font-size: 24px; }
+  .attention-item { padding: 16px; gap: 12px; }
+  h3 { font-size: 14px; line-height: 20px; }
 }
 </style>
