@@ -32,7 +32,7 @@ export interface MeResponse {
 
 export interface Expediente {
   id_expediente: number
-  cod_expediente: number
+  cod_expediente: string
   id_tesista: number // Tesista 1
   id_co_tesista: number | null // Tesista 2; clave JSON heredada del backend
   id_etapa_actual: number
@@ -75,11 +75,13 @@ export interface EstadoExpedienteActual {
 
 export interface InformeExpediente {
   id_informe_proyecto_tesis: number
+  id_asesor?: number | null
   version: number
   es_tesis: 0 | 1
   titulo: string
   turnitin: number | null
   archivo_adjunto: string | null
+  carta_aceptacion_asesor: string | null
   estado: 0 | 1
 }
 
@@ -120,6 +122,7 @@ export interface InformeProyectoTesisCreado {
   titulo: string
   turnitin: null
   archivo_adjunto: string | null
+  carta_aceptacion_asesor: string | null
   fecha_revision: string | null
   fecha_subsanacion: string | null
   estado: 0 | 1
@@ -217,9 +220,11 @@ export interface RevisionDocumentariaResponse {
 
 export interface ExpedienteDetalle {
   id_expediente: number
-  cod_expediente: number
+  cod_expediente: string
   solicitud_adjunta: string | null
   version: number
+  declaro_normativas: boolean
+  declaro_documentos_fieles: boolean
   cumple: 0 | 1
   estado: 0 | 1
   tesista_1: ParticipanteExpediente | null
