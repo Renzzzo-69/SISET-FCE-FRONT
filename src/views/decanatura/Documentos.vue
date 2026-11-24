@@ -1,264 +1,326 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import api from '@/services/api'
+import { computed, onMounted, reactive, ref } from 'vue'
+import api, { descargarDocumentoPrivado } from '@/services/api'
 
 type Formato = {
   id: number
-  nombre: string
-  descripcion: string | null
+  codigo: string
   version: string
-  tipo_archivo: string
-  nombre_original: string
+  fecha_vigencia: string | null
   archivo: string
-  tamano: number
   estado: 'activo' | 'depreciado'
-  actualizado_en: string | null
 }
-type Respuesta = {
-  metricas: { total: number; activos: number; depreciados: number }
-  formatos: Formato[]
+type Plantilla = {
+  codigo: string
+  nombre: string
+  descripcion: string
+  categoria: string
+  destinatarios: string[]
+  destino: string
+  icono: string
 }
 
-const router = useRouter()
-const formatos = ref<Formato[]>([])
-const metricas = ref({ total: 0, activos: 0, depreciados: 0 })
-const busqueda = ref('')
-const cargando = ref(true)
-const error = ref('')
-const procesando = ref<number | null>(null)
+const plantillas: Plantilla[] = [
+  {
+    codigo: 'certificado_originalidad',
+    nombre: 'Certificado de originalidad',
+    descripcion: 'Documento oficial que acredita la originalidad del trabajo presentado.',
+    categoria: 'proyectos',
+    destinatarios: ['tesista'],
+    destino: 'Formatos oficiales del Tesista',
+    icono: 'verified',
+  },
+  {
+    codigo: 'informe_conformidad_proyecto',
+    nombre: 'Informe de conformidad',
+    descripcion: 'Formato de conformidad del proyecto de investigación.',
+    categoria: 'proyectos',
+    destinatarios: ['tesista'],
+    destino: 'Formatos oficiales del Tesista',
+    icono: 'fact_check',
+  },
+  {
+    codigo: 'propuesta_jurado',
+    nombre: 'Propuesta de jurado',
+    descripcion: 'Formato institucional para presentar la propuesta de integrantes del jurado.',
+    categoria: 'jurados',
+    destinatarios: ['tesista'],
+    destino: 'Formatos oficiales del Tesista',
+    icono: 'groups',
+  },
+  {
+    codigo: 'plantilla_observaciones_jurado',
+    nombre: 'Plantilla de observaciones del jurado',
+    descripcion: 'Documento oficial para registrar las observaciones de la evaluación del proyecto o tesis.',
+    categoria: 'jurados',
+    destinatarios: ['jurado'],
+    destino: 'Modal Realizar observaciones · Jurado',
+    icono: 'rate_review',
+  },
+  {
+    codigo: 'carta_aceptacion_asesor',
+    nombre: 'Carta de aceptación para ser asesor',
+    descripcion: 'Formato mediante el cual el docente acepta formalmente asumir la asesoría.',
+    categoria: 'inscripcion',
+    destinatarios: ['tesista'],
+    destino: 'Formatos oficiales del Tesista',
+    icono: 'person_check',
+  },
+  {
+    codigo: 'carta_aceptacion_coasesor',
+    nombre: 'Carta de aceptación para ser coasesor',
+    descripcion: 'Formato mediante el cual el docente acepta formalmente asumir la coasesoría.',
+    categoria: 'inscripcion',
+    destinatarios: ['tesista'],
+    destino: 'Formatos oficiales del Tesista',
+    icono: 'group_add',
+  },
+  {
+    codigo: 'solicitud_asignacion_jurado',
+    nombre: 'Solicitud de asignación de jurado',
+    descripcion: 'Solicitud oficial para iniciar el procedimiento de asignación del jurado.',
+    categoria: 'jurados',
+    destinatarios: ['tesista'],
+    destino: 'Formatos oficiales del Tesista',
+    icono: 'assignment_ind',
+  },
+  {
+    codigo: 'declaracion_jurada_autenticidad',
+    nombre: 'Declaración jurada de autenticidad',
+    descripcion: 'Declaración mediante la cual el tesista garantiza la autenticidad de su trabajo.',
+    categoria: 'inscripcion',
+    destinatarios: ['tesista'],
+    destino: 'Formatos oficiales del Tesista',
+    icono: 'gavel',
+  },
+]
 
-const visibles = computed(() => {
-  const termino = busqueda.value.trim().toLocaleLowerCase('es')
-  if (!termino) return formatos.value
-  return formatos.value.filter((formato) =>
-    [formato.nombre, formato.descripcion, formato.version, formato.tipo_archivo]
-      .filter(Boolean)
-      .some((valor) => String(valor).toLocaleLowerCase('es').includes(termino)),
-  )
-})
+const formatos = ref<Formato[]>([]),
+  cargando = ref(true),
+  error = ref(''),
+  publicando = ref(false),
+  seleccionada = ref<Plantilla | null>(null)
+const formulario = reactive({ version: '1.0', fecha_vigencia: '', archivo: null as File | null })
+const formatosPorCodigo = computed(() => new Map(formatos.value.map((f) => [f.codigo, f])))
+const formatoDe = (p: Plantilla) => formatosPorCodigo.value.get(p.codigo)
 
 async function cargar() {
   cargando.value = true
   error.value = ''
   try {
-    const { data } = await api.get<Respuesta>('/decanatura/formatos')
+    const { data } = await api.get('/decanatura/formatos')
     formatos.value = data.formatos
-    metricas.value = data.metricas
   } catch (e: any) {
     error.value = e.response?.data?.message ?? 'No se pudieron cargar los formatos oficiales.'
   } finally {
     cargando.value = false
   }
 }
-
-function urlArchivo(ruta: string) {
-  if (/^https?:\/\//i.test(ruta)) return ruta
-  const baseApi = String(import.meta.env.VITE_API_URL ?? '').replace(/\/api\/?$/, '')
-  return `${baseApi}${ruta.startsWith('/') ? '' : '/'}${ruta}`
+function abrirCarga(p: Plantilla) {
+  const f = formatoDe(p)
+  seleccionada.value = p
+  formulario.version = f?.version ?? '1.0'
+  formulario.fecha_vigencia = f?.fecha_vigencia ?? new Date().toISOString().slice(0, 10)
+  formulario.archivo = null
+  error.value = ''
 }
-
-function abrir(formato: Formato, descargar = false) {
-  const enlace = document.createElement('a')
-  enlace.href = urlArchivo(formato.archivo)
-  enlace.target = '_blank'
-  enlace.rel = 'noopener'
-  if (descargar) enlace.download = formato.nombre_original
-  enlace.click()
+function seleccionarArchivo(e: Event) {
+  formulario.archivo = (e.target as HTMLInputElement).files?.[0] ?? null
 }
-
-async function depreciar(formato: Formato) {
-  if (formato.estado === 'depreciado') return
-  if (!window.confirm(`¿Marcar "${formato.nombre}" como depreciado?`)) return
-  procesando.value = formato.id
+async function publicar() {
+  const p = seleccionada.value
+  if (!p || !formulario.archivo) {
+    error.value = 'Seleccione el documento que desea publicar.'
+    return
+  }
+  publicando.value = true
+  error.value = ''
   try {
-    await api.delete(`/decanatura/formatos/${formato.id}`)
+    const d = new FormData()
+    d.append('nombre', p.nombre)
+    d.append('codigo', p.codigo)
+    d.append('categoria', p.categoria)
+    p.destinatarios.forEach((x) => d.append('destinatarios[]', x))
+    d.append('descripcion', p.descripcion)
+    d.append('version', formulario.version)
+    if (formulario.fecha_vigencia) d.append('fecha_vigencia', formulario.fecha_vigencia)
+    d.append('archivo', formulario.archivo)
+    const f = formatoDe(p)
+    await api.post(f ? `/decanatura/formatos/${f.id}` : '/decanatura/formatos', d)
+    seleccionada.value = null
     await cargar()
   } catch (e: any) {
-    error.value = e.response?.data?.message ?? 'No se pudo actualizar el formato.'
+    const v = e.response?.data?.errors
+    error.value =
+      e.response?.data?.message ??
+      (v ? Object.values(v).flat().join(' ') : 'No se pudo publicar el formato.')
   } finally {
-    procesando.value = null
+    publicando.value = false
   }
 }
-
-function icono(tipo: string) {
-  return tipo === 'pdf' ? 'picture_as_pdf' : tipo.includes('xls') ? 'table_view' : 'description'
+async function desactivar(p: Plantilla) {
+  const f = formatoDe(p)
+  if (!f || !confirm(`¿Desactivar “${p.nombre}”?`)) return
+  await api.delete(`/decanatura/formatos/${f.id}`)
+  await cargar()
 }
-function fecha(fechaIso: string | null) {
-  return fechaIso ? new Date(fechaIso).toLocaleDateString('es-PE') : 'Sin fecha'
+function fecha(v: string | null | undefined) {
+  return v ? new Date(`${v}T00:00:00`).toLocaleDateString('es-PE') : 'Sin publicar'
 }
-
 onMounted(cargar)
 </script>
 
 <template>
-  <div>
-    <div class="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-      <div>
-        <h2 class="mb-1 font-headline-lg text-headline-lg text-primary">
-          Gestión de Formatos Oficiales
-        </h2>
-        <p class="font-body-md text-body-md text-on-surface-variant">
-          Administre los documentos y plantillas oficiales de la facultad.
-        </p>
-      </div>
+  <main class="mx-auto w-full space-y-7">
+    <header>
+      <h1 class="text-3xl font-bold text-primary">Formatos Oficiales</h1>
+      <p class="mt-1 max-w-3xl text-on-surface-variant">
+        Publique cada documento en su espacio predeterminado. El sistema lo enviará al módulo
+        correspondiente.
+      </p>
+    </header>
+    <div v-if="error" class="rounded-xl bg-error-container p-4 text-error">{{ error }}</div>
+    <div v-if="cargando" class="py-20 text-center text-on-surface-variant">
+      Cargando formatos...
     </div>
-
-    <div v-if="error" class="mb-5 rounded-xl bg-error-container p-4 text-error">
-      {{ error }}
-      <button class="ml-2 font-bold underline" type="button" @click="cargar">Reintentar</button>
-    </div>
-
-    <div class="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3" :class="{ 'opacity-60': cargando }">
+    <section v-else class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <article
-        v-for="item in [
-          {
-            titulo: 'Total archivos',
-            valor: metricas.total,
-            icono: 'folder_open',
-            clase: 'text-primary bg-primary-fixed/30',
-          },
-          {
-            titulo: 'Activos',
-            valor: metricas.activos,
-            icono: 'check_circle',
-            clase: 'text-secondary bg-secondary-container/50',
-          },
-          {
-            titulo: 'Depreciados',
-            valor: metricas.depreciados,
-            icono: 'history',
-            clase: 'text-error bg-error-container/50',
-          },
-        ]"
-        :key="item.titulo"
-        class="flex items-center gap-4 rounded-xl border border-outline-variant/30 bg-surface p-4 shadow-sm"
+        v-for="p in plantillas"
+        :key="p.codigo"
+        class="flex flex-col rounded-lg border border-outline-variant/40 bg-surface-container-lowest p-4 shadow-sm"
       >
-        <div class="flex h-12 w-12 items-center justify-center rounded-lg" :class="item.clase">
-          <span class="material-symbols-outlined">{{ item.icono }}</span>
+        <div class="flex items-center justify-between gap-3">
+          <span class="material-symbols-outlined text-2xl text-primary">{{ p.icono }}</span
+          ><span
+            class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+            :class="
+              formatoDe(p)?.estado === 'activo'
+                ? 'bg-secondary-container text-on-secondary-container'
+                : 'bg-surface-container-high text-on-surface-variant'
+            "
+            >{{ formatoDe(p)?.estado === 'activo' ? 'Publicado' : 'Pendiente' }}</span
+          >
         </div>
-        <div>
-          <p class="text-label-sm font-bold uppercase text-on-surface-variant">{{ item.titulo }}</p>
-          <p class="text-headline-md font-bold text-primary">{{ item.valor }}</p>
+        <h2 class="mt-3 text-base font-bold text-primary">{{ p.nombre }}</h2>
+        <p class="mt-1 line-clamp-2 text-xs leading-5 text-on-surface-variant">
+          {{ p.descripcion }}
+        </p>
+        <div class="mt-3 border-t border-outline-variant/30 pt-3">
+          <p class="text-[11px] font-semibold text-on-surface-variant">Destino predeterminado</p>
+          <p class="mt-1 flex items-start gap-1.5 text-xs font-semibold">
+            <span class="material-symbols-outlined text-lg text-primary">outbox</span
+            >{{ p.destino }}
+          </p>
+        </div>
+        <dl class="mt-2 flex gap-5 text-xs">
+          <div>
+            <dt class="text-on-surface-variant">Versión</dt>
+            <dd class="font-bold">{{ formatoDe(p) ? `v${formatoDe(p)?.version}` : '—' }}</dd>
+          </div>
+          <div>
+            <dt class="text-on-surface-variant">Vigencia</dt>
+            <dd class="font-bold">{{ fecha(formatoDe(p)?.fecha_vigencia) }}</dd>
+          </div>
+        </dl>
+        <div class="mt-auto flex flex-wrap gap-1.5 pt-4">
+          <template v-if="formatoDe(p)?.estado === 'activo'"
+            ><button
+              class="rounded-md border border-outline-variant px-2.5 py-1.5 text-xs font-semibold text-primary"
+              @click="descargarDocumentoPrivado(formatoDe(p)!.archivo, p.codigo)"
+            >
+              Descargar
+            </button></template
+          >
+          <button
+            class="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white"
+            @click="abrirCarga(p)"
+          >
+            {{ formatoDe(p) ? 'Reemplazar' : 'Subir documento' }}</button
+          ><button
+            v-if="formatoDe(p)?.estado === 'activo'"
+            class="px-2 py-1.5 text-xs font-semibold text-error"
+            @click="desactivar(p)"
+          >
+            Desactivar
+          </button>
         </div>
       </article>
-    </div>
-
-    <div class="mb-6 flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-center">
-      <div class="relative w-full sm:max-w-sm">
-        <span
-          class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline"
-          >search</span
-        ><input
-          v-model="busqueda"
-          class="w-full rounded-lg border border-outline-variant/30 bg-surface-container py-2.5 pl-10 pr-4"
-          placeholder="Buscar formatos..."
-          type="search"
-        />
-      </div>
-      <button
-        class="flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2.5 font-bold text-white shadow-sm"
-        type="button"
-        @click="router.push({ name: 'decanatura-formatos-nuevo' })"
-      >
-        <span class="material-symbols-outlined">add</span><span>Agregar Formato</span>
-      </button>
-    </div>
-
-    <section
-      class="overflow-hidden rounded-xl border border-outline-variant/30 bg-surface-container-lowest shadow-sm"
-    >
-      <header class="border-b border-outline-variant/30 bg-surface-container/50 px-4 py-4 sm:px-6">
-        <h3 class="font-headline-sm text-headline-sm text-primary">
-          Listado de Documentos Oficiales
-        </h3>
-      </header>
-      <div v-if="cargando" class="p-12 text-center text-on-surface-variant">
-        Cargando formatos...
-      </div>
-      <div v-else-if="!visibles.length" class="p-12 text-center text-on-surface-variant">
-        No hay formatos que coincidan con la búsqueda.
-      </div>
-      <div v-else class="overflow-x-auto">
-        <table class="w-full min-w-[760px] border-collapse text-left">
-          <thead>
-            <tr
-              class="bg-surface-container-lowest text-nav-caps uppercase tracking-widest text-on-surface-variant"
-            >
-              <th class="border-b border-outline-variant/20 px-6 py-4">Nombre del documento</th>
-              <th class="border-b border-outline-variant/20 px-6 py-4">Tipo</th>
-              <th class="border-b border-outline-variant/20 px-6 py-4">Estado</th>
-              <th class="border-b border-outline-variant/20 px-6 py-4 text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/10">
-            <tr
-              v-for="formato in visibles"
-              :key="formato.id"
-              class="hover:bg-surface-container-low"
-            >
-              <td class="px-6 py-5">
-                <div class="flex items-center gap-3">
-                  <div
-                    class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-primary-fixed/30 text-primary"
-                  >
-                    <span class="material-symbols-outlined">{{ icono(formato.tipo_archivo) }}</span>
-                  </div>
-                  <div>
-                    <p class="font-semibold text-primary">{{ formato.nombre }}</p>
-                    <p class="text-label-sm text-on-surface-variant">
-                      v{{ formato.version }} · Actualizado {{ fecha(formato.actualizado_en) }}
-                    </p>
-                  </div>
-                </div>
-              </td>
-              <td class="px-6 py-5 uppercase text-on-surface-variant">
-                {{ formato.tipo_archivo }}
-              </td>
-              <td class="px-6 py-5">
-                <span
-                  class="inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase"
-                  :class="
-                    formato.estado === 'activo'
-                      ? 'bg-secondary-container text-on-secondary-container'
-                      : 'bg-error-container text-on-error-container'
-                  "
-                  >{{ formato.estado }}</span
-                >
-              </td>
-              <td class="px-6 py-5">
-                <div class="flex justify-end gap-1">
-                  <button
-                    class="rounded-lg p-2 text-primary hover:bg-primary-fixed/20"
-                    title="Visualizar"
-                    @click="abrir(formato)"
-                  >
-                    <span class="material-symbols-outlined">visibility</span></button
-                  ><button
-                    class="rounded-lg p-2 text-secondary hover:bg-secondary-container/50"
-                    title="Descargar"
-                    @click="abrir(formato, true)"
-                  >
-                    <span class="material-symbols-outlined">download</span></button
-                  ><button
-                    :disabled="formato.estado === 'depreciado' || procesando === formato.id"
-                    class="rounded-lg p-2 text-error hover:bg-error-container/50 disabled:opacity-30"
-                    title="Marcar como depreciado"
-                    @click="depreciar(formato)"
-                  >
-                    <span class="material-symbols-outlined">archive</span>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <footer
-        class="border-t border-outline-variant/30 px-4 py-4 text-label-sm text-on-surface-variant sm:px-6"
-      >
-        Mostrando {{ visibles.length }} de {{ metricas.total }} formatos registrados
-      </footer>
     </section>
-  </div>
+    <Teleport to="body"
+      ><div
+        v-if="seleccionada"
+        class="fixed inset-0 z-[100] grid place-items-center bg-black/55 p-4"
+        @click.self="seleccionada = null"
+      >
+        <form
+          class="w-full max-w-xl space-y-5 rounded-2xl bg-surface p-6 shadow-2xl"
+          @submit.prevent="publicar"
+        >
+          <div>
+            <p class="text-sm font-bold uppercase tracking-wide text-primary">
+              Publicar formato oficial
+            </p>
+            <h2 class="mt-1 text-2xl font-bold">{{ seleccionada.nombre }}</h2>
+            <p class="mt-1 text-sm text-on-surface-variant">Destino: {{ seleccionada.destino }}</p>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <label class="text-sm font-bold"
+              >Versión<input
+                v-model.trim="formulario.version"
+                required
+                maxlength="20"
+                class="mt-2 w-full rounded-lg border border-outline-variant bg-surface-container p-3" /></label
+            ><label class="text-sm font-bold"
+              >Vigente desde<input
+                v-model="formulario.fecha_vigencia"
+                type="date"
+                class="mt-2 w-full rounded-lg border border-outline-variant bg-surface-container p-3"
+            /></label>
+          </div>
+          <label
+            class="flex cursor-pointer flex-col items-center gap-3 rounded-xl border-2 border-dashed border-outline-variant p-7 text-center"
+            ><input
+              class="sr-only"
+              type="file"
+              accept=".pdf,.doc,.docx,.xls,.xlsx"
+              @change="seleccionarArchivo"
+            /><span class="material-symbols-outlined text-4xl text-primary">cloud_upload</span
+            ><span class="font-bold">{{ formulario.archivo?.name ?? 'Seleccionar documento' }}</span
+            ><span class="text-xs text-on-surface-variant"
+              >PDF, Word o Excel · máximo 30 MB</span
+            ></label
+          >
+          <div class="flex justify-end gap-3">
+            <button
+              type="button"
+              class="px-4 py-2 font-bold text-primary"
+              @click="seleccionada = null"
+            >
+              Cancelar</button
+            ><button
+              :disabled="publicando"
+              class="rounded-lg bg-primary px-5 py-2.5 font-bold text-white disabled:opacity-50"
+            >
+              {{ publicando ? 'Publicando...' : 'Publicar documento' }}
+            </button>
+          </div>
+        </form>
+      </div></Teleport
+    >
+  </main>
 </template>
+
+<style scoped>
+.slot-emerald {
+  background: #16a085;
+}
+.slot-blue {
+  background: #3659a2;
+}
+.slot-amber {
+  background: #d89126;
+}
+.slot-rose {
+  background: #b84d65;
+}
+</style>

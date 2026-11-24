@@ -112,6 +112,8 @@ function tituloResolucion(valor: string | null) {
       {
         designacion_jurados: 'Designación de jurados',
         aprobacion_proyecto: 'Aprobación del proyecto de tesis',
+        cambio_jurado: 'Cambio de jurado',
+        anulacion_proyecto: 'Anulación de proyecto',
         aprobacion_tesis_final: 'Aprobación de tesis final',
       } as Record<string, string>
     )[valor ?? ''] ??

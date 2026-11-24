@@ -5,6 +5,18 @@ import api from '@/services/api'
 
 const router = useRouter()
 const nombre = ref('')
+const codigo = ref('')
+const categoria = ref('otros')
+const destinatarios = ref<string[]>(['tesista'])
+const opcionesDestinatario = [
+  ['tesista', 'Tesista'],
+  ['jurado', 'Jurado'],
+  ['asesor', 'Asesor'],
+  ['udi', 'UDI'],
+  ['secretaria_academica', 'Secretaría Académica'],
+  ['decanatura', 'Decanatura'],
+]
+const fechaVigencia = ref('')
 const descripcion = ref('')
 const version = ref('1.0')
 const archivo = ref<File | null>(null)
@@ -19,11 +31,19 @@ async function guardar() {
     error.value = 'Seleccione un archivo PDF, Word o Excel.'
     return
   }
+  if (!destinatarios.value.length) {
+    error.value = 'Seleccione al menos un módulo destinatario.'
+    return
+  }
   guardando.value = true
   error.value = ''
   try {
     const datos = new FormData()
     datos.append('nombre', nombre.value)
+    datos.append('codigo', codigo.value)
+    datos.append('categoria', categoria.value)
+    destinatarios.value.forEach((destinatario) => datos.append('destinatarios[]', destinatario))
+    if (fechaVigencia.value) datos.append('fecha_vigencia', fechaVigencia.value)
     datos.append('descripcion', descripcion.value)
     datos.append('version', version.value)
     datos.append('archivo', archivo.value)
@@ -77,6 +97,21 @@ async function guardar() {
             class="w-full rounded-lg border border-outline-variant bg-surface-container px-4 py-3"
             placeholder="Ej. Acta de sustentación"
         /></label>
+        <div class="grid grid-cols-1 gap-5 sm:grid-cols-3">
+          <label class="block space-y-2"><span class="text-xs font-bold uppercase text-on-surface-variant">Código funcional</span><input v-model.trim="codigo" required maxlength="80" class="w-full rounded-lg border border-outline-variant bg-surface-container px-4 py-3" placeholder="plantilla_observaciones_jurado" /></label>
+          <label class="block space-y-2"><span class="text-xs font-bold uppercase text-on-surface-variant">Categoría</span><select v-model="categoria" class="w-full rounded-lg border border-outline-variant bg-surface-container px-4 py-3"><option value="inscripcion">Inscripción</option><option value="proyectos">Proyectos</option><option value="sustentacion">Sustentación</option><option value="jurados">Jurados</option><option value="otros">Otros</option></select></label>
+          <label class="block space-y-2"><span class="text-xs font-bold uppercase text-on-surface-variant">Vigente desde</span><input v-model="fechaVigencia" type="date" class="w-full rounded-lg border border-outline-variant bg-surface-container px-4 py-3" /></label>
+        </div>
+        <fieldset class="space-y-3 rounded-xl border border-outline-variant/40 bg-surface-container/30 p-4">
+          <legend class="px-2 text-xs font-bold uppercase text-on-surface-variant">Visible en los módulos</legend>
+          <p class="text-sm text-on-surface-variant">El formato solo aparecerá para los roles seleccionados. Puede elegir más de uno.</p>
+          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <label v-for="opcion in opcionesDestinatario" :key="opcion[0]" class="flex cursor-pointer items-center gap-3 rounded-lg border border-outline-variant/40 bg-surface px-4 py-3">
+              <input v-model="destinatarios" type="checkbox" :value="opcion[0]" class="h-5 w-5 accent-primary" />
+              <span class="font-semibold text-on-surface">{{ opcion[1] }}</span>
+            </label>
+          </div>
+        </fieldset>
         <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <label class="block space-y-2"
             ><span class="text-xs font-bold uppercase text-on-surface-variant">Versión</span

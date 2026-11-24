@@ -727,6 +727,9 @@ onMounted(async () => {
           <li v-for="evento in historialOrdenado" :key="evento.id_historial">
             <strong>{{ fechaTexto(evento.fecha_cambio) }}</strong>
             <span>{{ evento.accion_realizada }}</span>
+            <p v-if="evento.detalle" class="mt-2 rounded-lg border border-error/20 bg-error-container p-3 text-on-error-container">
+              <strong>Motivo:</strong> {{ evento.detalle }}
+            </p>
             <p>
               Etapa: {{ nombreEtapa(evento.etapa_anterior) }} → {{ nombreEtapa(evento.etapa_nueva) }}
             </p>

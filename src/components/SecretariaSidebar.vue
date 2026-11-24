@@ -18,6 +18,10 @@
         <span class="material-symbols-outlined">edit_note</span>
         <span class="font-label-md text-label-md">Corrección de Subidas</span>
       </router-link>
+      <router-link class="text-primary-fixed/70 hover:text-primary-fixed hover:bg-primary-container/50 flex items-center gap-3 px-4 py-3 transition-colors rounded-xl" :to="{ name: 'secretaria-notificaciones' }">
+        <span class="material-symbols-outlined">notifications_active</span>
+        <span class="font-label-md text-label-md">Notificaciones</span>
+      </router-link>
       <router-link class="text-primary-fixed/70 hover:text-primary-fixed hover:bg-primary-container/50 flex items-center gap-3 px-4 py-3 transition-colors rounded-xl" :to="{ name: 'secretaria-configuracion' }">
         <span class="material-symbols-outlined">settings</span>
         <span class="font-label-md text-label-md">Configuración</span>

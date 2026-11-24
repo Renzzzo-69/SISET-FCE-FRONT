@@ -40,17 +40,17 @@ async function cerrarSesion() {
       </router-link>
       <router-link
         class="text-primary-fixed/70 hover:text-primary-fixed hover:bg-primary-container/50 flex items-center gap-3 px-4 py-3 transition-colors rounded-xl"
+        :to="{ name: 'decanatura-expedientes-pendientes' }"
+      >
+        <span class="material-symbols-outlined">inbox</span>
+        <span class="font-label-md text-label-md">Revisión de Expedientes</span>
+      </router-link>
+      <router-link
+        class="text-primary-fixed/70 hover:text-primary-fixed hover:bg-primary-container/50 flex items-center gap-3 px-4 py-3 transition-colors rounded-xl"
         :to="{ name: 'decanatura-documentos' }"
       >
         <span class="material-symbols-outlined">description</span>
         <span class="font-label-md text-label-md">Formatos Oficiales</span>
-      </router-link>
-      <router-link
-        class="text-primary-fixed/70 hover:text-primary-fixed hover:bg-primary-container/50 flex items-center gap-3 px-4 py-3 transition-colors rounded-xl"
-        :to="{ name: 'decanatura-asignacion' }"
-      >
-        <span class="material-symbols-outlined">assignment_ind</span>
-        <span class="font-label-md text-label-md">Asignación de Jurados</span>
       </router-link>
       <router-link
         class="text-primary-fixed/70 hover:text-primary-fixed hover:bg-primary-container/50 flex items-center gap-3 px-4 py-3 transition-colors rounded-xl"

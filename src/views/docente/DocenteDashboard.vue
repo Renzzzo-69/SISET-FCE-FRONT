@@ -51,9 +51,9 @@ const visibles = computed(() => {
 })
 const actuales = computed(() => [
   {
-    label: 'Tesis en Asesoría',
+    label: 'Asesorías activas',
     valor: metricas.value.tesis_asesoria,
-    detalle: 'Seguimiento activo',
+    detalle: 'Proyectos y tesis',
     icono: 'school',
     color: 'primary',
     ruta: 'docente-asesor-tesis-revision',

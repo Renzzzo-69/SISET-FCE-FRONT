@@ -132,6 +132,7 @@ export interface EventoHistorialExpediente {
   id_historial: number
   fecha_cambio: string
   accion_realizada: string
+  detalle: string | null
   etapa_anterior: EtapaExpedienteActual | null
   etapa_nueva: EtapaExpedienteActual | null
   estado_anterior: EstadoExpedienteActual | null

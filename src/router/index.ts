@@ -24,9 +24,12 @@ import AsignacionIndividualJurados from '@/views/decanatura/AsignacionIndividual
 import Documentos from '@/views/decanatura/Documentos.vue'
 import AgregarFormato from '@/views/decanatura/AgregarFormato.vue'
 import Notificaciones from '@/views/decanatura/Notificaciones.vue'
+import ExpedientesPendientes from '@/views/decanatura/ExpedientesPendientes.vue'
+import RevisionInicialExpediente from '@/views/decanatura/RevisionInicialExpediente.vue'
 import Resoluciones from '@/views/secretaria/Resoluciones.vue'
 import SecretariaSubirResolucion from '@/views/secretaria/SubirResolucion.vue'
 import CorregirResolucion from '@/views/secretaria/CorregirResolucion.vue'
+import NotificacionesSecretaria from '@/views/secretaria/NotificacionesSecretaria.vue'
 import DocenteLayout from '@/layouts/DocenteLayout.vue'
 import DocenteDashboard from '@/views/docente/DocenteDashboard.vue'
 import TesisRevision from '@/views/docente/jurado/TesisRevision.vue'
@@ -145,6 +148,16 @@ const router = createRouter({
       meta: { requiereAutenticacion: true, roles: ['decanatura'] },
       children: [
         { path: '', name: 'decanatura', component: DecanaturaView },
+        {
+          path: 'expedientes-pendientes',
+          name: 'decanatura-expedientes-pendientes',
+          component: ExpedientesPendientes,
+        },
+        {
+          path: 'expedientes-pendientes/:id(\\d+)/revision',
+          name: 'decanatura-expediente-revision',
+          component: RevisionInicialExpediente,
+        },
         { path: 'asignacion', name: 'decanatura-asignacion', component: AsignacionJurados },
         {
           path: 'asignacion/:id(\\d+)',
@@ -172,6 +185,16 @@ const router = createRouter({
           path: 'corregir-resolucion',
           name: 'secretaria-corregir-resolucion',
           component: CorregirResolucion,
+        },
+        {
+          path: 'corregir-resolucion/proyecto/:idExpediente(\\d+)',
+          name: 'secretaria-corregir-resolucion-proyecto',
+          component: CorregirResolucion,
+        },
+        {
+          path: 'notificaciones',
+          name: 'secretaria-notificaciones',
+          component: NotificacionesSecretaria,
         },
         { path: 'configuracion', name: 'secretaria-configuracion', component: ConfiguracionView },
       ],
