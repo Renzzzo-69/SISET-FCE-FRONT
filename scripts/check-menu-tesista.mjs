@@ -41,11 +41,14 @@ await auth.actualizarExpediente()
 assert.equal(auth.tieneExpediente.value, false)
 fallo = true
 await auth.actualizarExpediente()
-assert.deepEqual(visibles(), ['formatos', 'perfil'])
+assert.deepEqual(visibles(), ['expedientes-nuevo', 'formatos', 'perfil'], 'Un fallo temporal conserva el estado ya comprobado')
 assert.ok(auth.errorExpediente.value)
 fallo = false
 await auth.actualizarExpediente()
 assert.equal(auth.errorExpediente.value, '')
 auth.limpiarSesion()
 assert.equal(auth.tieneExpediente.value, null)
+fallo = true
+await auth.actualizarExpediente()
+assert.deepEqual(visibles(), ['formatos', 'perfil'], 'Sin una consulta previa no se habilita el registro ni los módulos del expediente')
 console.log('OK: menú inicial, ambos tesistas, expedientes ajenos, error, recuperación y cierre de sesión.')

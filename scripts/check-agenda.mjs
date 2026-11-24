@@ -25,9 +25,21 @@ const source = ts
 const setup = new Function(
   'computed',
   'ref',
-  `${source}\nreturn { mes, dias, cambiarMes, fechaSeleccionada, tipo, visibles, limpiar };`,
+  'useRoute',
+  'useRouter',
+  'watch',
+  'onMounted',
+  'onUnmounted',
+  'fechaLima',
+  'eventosAgenda',
+  `${source}\nreturn { agenda, mes, dias, cambiarMes, fechaSeleccionada, tipo, alcance, visibles, limpiar };`,
 )
-const view = setup(computed, ref)
+const view = setup(computed, ref, () => ({ query: {} }), () => ({}), () => {}, () => {}, () => {}, () => '2024-10-01', (plazos) => plazos)
+view.agenda.value = { plazos: [
+  { fecha: '2024-10-28', titulo: 'Límite de subsanación', tipo: 'Subsanación', esPersonal: true },
+  { fecha: '2024-10-29', titulo: 'Evaluación de jurados', tipo: 'Evaluación', esPersonal: false },
+  { fecha: '2024-10-30', titulo: 'Remisión de documentos', tipo: 'Trámite', esPersonal: false },
+] }
 assert.equal(view.dias.value.length, 35)
 assert.equal(view.dias.value[0].clave, '2024-09-30', 'La semana empieza en lunes')
 assert.equal(view.dias.value.at(-1).clave, '2024-11-03')
@@ -38,6 +50,10 @@ view.tipo.value = 'Evaluación'
 assert.equal(view.visibles.value.length, 0)
 view.limpiar()
 assert.equal(view.visibles.value.length, 3)
+view.alcance.value = 'mios'
+assert.equal(view.visibles.value.length, 1)
+view.limpiar()
+assert.equal(view.alcance.value, 'todos')
 view.mes.value = new Date(2024, 1, 1)
 assert.equal(view.dias.value.filter((dia) => !dia.fuera).length, 29)
 view.mes.value = new Date(2024, 11, 1)

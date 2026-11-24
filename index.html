@@ -5,8 +5,6 @@
     <link rel="icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SISET-FCE</title>
-    <!-- Tailwind (CDN) + Fonts used by the provided Decanatura design -->
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;600;700&display=swap"
       rel="stylesheet"
@@ -15,76 +13,7 @@
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
       rel="stylesheet"
     />
-    <script id="tailwind-config">
-      tailwind.config = {
-        darkMode: 'class',
-        theme: {
-          extend: {
-            colors: {
-              'sidebar-bg': 'rgb(var(--sidebar-bg) / <alpha-value>)',
-              primary: 'rgb(var(--primary) / <alpha-value>)',
-              secondary: 'rgb(var(--secondary) / <alpha-value>)',
-              background: 'rgb(var(--background) / <alpha-value>)',
-              'surface-container-lowest': 'rgb(var(--surface-lowest) / <alpha-value>)',
-              'surface-variant': 'rgb(var(--surface-variant) / <alpha-value>)',
-              'status-error': 'rgb(var(--status-error) / <alpha-value>)',
-              'status-success': 'rgb(var(--status-success) / <alpha-value>)',
-              'primary-container': 'rgb(var(--primary-container) / <alpha-value>)',
-              'primary-fixed-dim': 'rgb(var(--primary-fixed-dim) / <alpha-value>)',
-              'on-surface-variant': 'rgb(var(--on-surface-variant) / <alpha-value>)',
-              'on-surface': 'rgb(var(--on-surface) / <alpha-value>)',
-              outline: 'rgb(var(--outline) / <alpha-value>)',
-              'outline-variant': 'rgb(var(--outline-variant) / <alpha-value>)',
-              surface: 'rgb(var(--surface) / <alpha-value>)',
-              'surface-container': 'rgb(var(--surface-container) / <alpha-value>)',
-              'surface-container-low': 'rgb(var(--surface-container-low) / <alpha-value>)',
-              'surface-container-high': 'rgb(var(--surface-container-high) / <alpha-value>)',
-              'on-primary': '#ffffff',
-              'on-primary-container': 'rgb(var(--on-primary-container) / <alpha-value>)',
-              'on-primary-fixed': 'rgb(var(--on-primary-fixed) / <alpha-value>)',
-              'on-primary-fixed-variant': 'rgb(var(--on-primary-fixed-variant) / <alpha-value>)',
-              'primary-fixed': 'rgb(var(--primary-fixed) / <alpha-value>)',
-              'secondary-container': 'rgb(var(--secondary-container) / <alpha-value>)',
-              'on-secondary-container': 'rgb(var(--on-secondary-container) / <alpha-value>)',
-              'error-container': 'rgb(var(--error-container) / <alpha-value>)',
-              'on-error-container': 'rgb(var(--on-error-container) / <alpha-value>)',
-              'on-tertiary-container': '#d69d61',
-            },
-            borderRadius: { lg: '0.25rem', xl: '0.5rem', full: '0.75rem' },
-            spacing: {
-              'sidebar-width': '250px',
-              'header-height': '70px',
-              'card-padding': '1.5rem',
-              gutter: '1.25rem',
-              'container-max-width': '896px',
-            },
-            fontFamily: {
-              'body-lg': ['Inter'],
-              'nav-caps': ['Inter'],
-              'headline-md': ['Hanken Grotesk'],
-              'headline-lg': ['Hanken Grotesk'],
-              'label-md': ['Inter'],
-              'headline-sm': ['Hanken Grotesk'],
-              'label-sm': ['Inter'],
-              'body-md': ['Inter'],
-            },
-            fontSize: {
-              'body-lg': ['16px', { lineHeight: '24px', fontWeight: '400' }],
-              'nav-caps': [
-                '10px',
-                { lineHeight: '12px', letterSpacing: '0.1em', fontWeight: '700' },
-              ],
-              'headline-md': ['22px', { lineHeight: '30px', fontWeight: '600' }],
-              'headline-lg': ['28px', { lineHeight: '36px', fontWeight: '700' }],
-              'label-md': ['12px', { lineHeight: '16px', fontWeight: '500' }],
-              'headline-sm': ['16px', { lineHeight: '24px', fontWeight: '600' }],
-              'label-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
-              'body-md': ['14px', { lineHeight: '20px', fontWeight: '400' }],
-            },
-          },
-        },
-      }
-    </script>
+
     <style>
       :root {
         --sidebar-bg: 40 58 112;

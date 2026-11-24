@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
-import { RouterLink, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import api, { descargarDocumentoPrivado } from '@/services/api'
-import { useAuthStore } from '@/stores/auth'
 import type { Expediente, ExpedienteDetalle, ExpedienteDetalleResponse } from '@/types/api'
 
 interface Resolucion {
@@ -16,13 +15,19 @@ interface Resolucion {
   archivo_pdf: string | null
 }
 interface Documento {
+  id: string
   ruta: string
+  fecha: string | null
+  responsable: string | null
   nombre: string
   tipo: string
-  version: number
+  formato: 'pdf' | 'docx' | null
+  version: number | null
   activo: boolean
+  origen?: string
+  ronda?: number
+  intento?: number
 }
-const auth = useAuthStore()
 const route = useRoute()
 const expedientes = ref<Expediente[]>([])
 const seleccionado = ref<number | null>(null)
@@ -35,68 +40,37 @@ const errorArchivo = ref('')
 const ocupado = ref(false)
 const tipo = ref('')
 const estado = ref('')
+const orden = ref('recientes')
 const pagina = ref(1)
 const porPagina = 5
 const visor = ref<HTMLDialogElement | null>(null)
 const vista = ref<{ url: string; nombre: string } | null>(null)
-const documentos = computed(() => {
-  const lista: Documento[] = []
-  for (const informe of [...(detalle.value?.informes ?? [])].sort(
-    (a, b) => b.version - a.version,
-  )) {
-    const categoria = informe.es_tesis ? 'tesis' : 'proyecto'
-    if (informe.archivo_adjunto)
-      lista.push({
-        ruta: informe.archivo_adjunto,
-        nombre: `${informe.es_tesis ? 'Tesis_Final' : 'Proyecto_Tesis'}_V${informe.version}`,
-        tipo: categoria,
-        version: informe.version,
-        activo: informe.estado === 1,
-      })
-    if (informe.carta_aceptacion_asesor)
-      lista.push({
-        ruta: informe.carta_aceptacion_asesor,
-        nombre: `Carta_Aceptacion_Asesor_V${informe.version}`,
-        tipo: 'carta',
-        version: informe.version,
-        activo: informe.estado === 1,
-      })
-  }
-  if (detalle.value?.solicitud_adjunta)
-    lista.push({
-      ruta: detalle.value.solicitud_adjunta,
-      nombre: `Solicitud_${detalle.value.cod_expediente}`,
-      tipo: 'solicitud',
-      version: detalle.value.version,
-      activo: detalle.value.estado === 1,
-    })
-  return lista
-})
-const filtrados = computed(() =>
-  documentos.value.filter(
+const documentos = ref<Documento[]>([])
+const filtrados = computed(() => {
+  const lista = documentos.value.filter(
     (item) =>
       (!tipo.value || item.tipo === tipo.value) &&
       (!estado.value || item.activo === (estado.value === 'activo')),
-  ),
-)
+  )
+  if (orden.value !== 'tramite')
+    lista.sort((a, b) => {
+      if (!a.fecha) return b.fecha ? 1 : 0
+      if (!b.fecha) return -1
+      return a.fecha.localeCompare(b.fecha) * (orden.value === 'recientes' ? -1 : 1)
+    })
+  return lista
+})
 const paginas = computed(() => Math.max(1, Math.ceil(filtrados.value.length / porPagina)))
 const visibles = computed(() =>
   filtrados.value.slice((pagina.value - 1) * porPagina, pagina.value * porPagina),
 )
-const puedeCrear = computed(() => {
-  const alumno = auth.usuario?.alumno?.id_alumno
-  return (
-    auth.tieneRol('tesista') &&
-    alumno !== undefined &&
-    [detalle.value?.tesista_1?.id_alumno, detalle.value?.tesista_2?.id_alumno].includes(alumno)
-  )
-})
-watch([tipo, estado], () => {
+watch([tipo, estado, orden], () => {
   pagina.value = 1
 })
 function limpiar() {
   tipo.value = ''
   estado.value = ''
+  orden.value = 'recientes'
   pagina.value = 1
 }
 function fecha(valor: string | null) {
@@ -115,6 +89,7 @@ function tituloResolucion(valor: string | null) {
         cambio_jurado: 'Cambio de jurado',
         anulacion_proyecto: 'Anulación de proyecto',
         aprobacion_tesis_final: 'Aprobación de tesis final',
+        conformidad: 'Resolución de conformidad',
       } as Record<string, string>
     )[valor ?? ''] ??
     valor?.replaceAll('_', ' ') ??
@@ -128,9 +103,16 @@ async function cargarResoluciones() {
     const { data } = await api.get<{ data: Resolucion[] }>('/resoluciones', {
       params: { id_expediente: seleccionado.value },
     })
-    resoluciones.value = data.data.filter(
-      (item) => Number(item.id_expediente) === seleccionado.value,
-    )
+    resoluciones.value = data.data
+      .filter((item) => Number(item.id_expediente) === seleccionado.value)
+      .map((item) => ({
+        ...item,
+        archivo_pdf:
+          documentos.value.find(
+            (documento) =>
+              documento.id === `resolucion-${item.id_resolucion}` && documento.formato === 'pdf',
+          )?.ruta ?? null,
+      }))
   } catch {
     errorResoluciones.value = 'No se pudieron consultar las resoluciones de este expediente.'
   }
@@ -142,11 +124,16 @@ async function cargarDetalle() {
   errorArchivo.value = ''
   detalle.value = null
   resoluciones.value = []
+  documentos.value = []
   limpiar()
   try {
     const { data } = await api.get<ExpedienteDetalleResponse>(`/expedientes/${seleccionado.value}`)
     detalle.value = data.data
     if (!data.data) throw new Error('Sin detalle')
+    const biblioteca = await api.get<{ data: Documento[] }>(
+      `/expedientes/${seleccionado.value}/documentos`,
+    )
+    documentos.value = biblioteca.data.data
     await cargarResoluciones()
   } catch (causa) {
     error.value = axios.isAxiosError(causa)
@@ -176,7 +163,7 @@ async function cargar() {
 }
 function cerrarVista() {
   visor.value?.close()
-  if (vista.value) URL.revokeObjectURL(vista.value.url)
+  if (vista.value?.url) URL.revokeObjectURL(vista.value.url)
   vista.value = null
 }
 async function abrirArchivo(ruta: string, nombre: string, descargar = false) {
@@ -195,17 +182,24 @@ async function abrirArchivo(ruta: string, nombre: string, descargar = false) {
         cerrarVista()
         vista.value = { url: URL.createObjectURL(data), nombre }
         visor.value?.showModal()
-      } else if (
-        data.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      ) {
-        await descargarDocumentoPrivado(url.toString(), nombre)
       } else {
         throw new Error('Formato no compatible')
       }
     }
-  } catch {
+  } catch (causa) {
     errorArchivo.value =
       'No se pudo abrir el documento. Comprueba que esté disponible e inténtalo nuevamente.'
+    if (axios.isAxiosError(causa)) {
+      const respuesta = causa.response?.data
+      if (respuesta instanceof Blob && respuesta.type.includes('json')) {
+        try {
+          const contenido = JSON.parse(await respuesta.text())
+          if (typeof contenido.message === 'string') errorArchivo.value = contenido.message
+        } catch {
+          // Conserva el mensaje de respaldo si el servidor no devuelve un JSON válido.
+        }
+      }
+    }
   } finally {
     ocupado.value = false
   }
@@ -220,21 +214,10 @@ onBeforeUnmount(cerrarVista)
       <div>
         <h1>Documentos y Resoluciones</h1>
         <p>
-          Gestione los archivos de su expediente y consulte las resoluciones oficiales emitidas.
+          Consulte y descargue las solicitudes, informes de proyecto, informes de tesis,
+          resoluciones y demás documentos tramitados en su expediente.
         </p>
       </div>
-      <RouterLink
-        v-if="puedeCrear && detalle"
-        class="button primary"
-        :to="{
-          name: 'expedientes-detalle',
-          params: { id: detalle.id_expediente },
-          query: { registrar: 'documento' },
-          hash: '#informes',
-        }"
-        ><span class="material-symbols-outlined" aria-hidden="true">upload_file</span>Nuevo
-        Documento</RouterLink
-      >
     </header>
     <label v-if="expedientes.length > 1" class="file-picker"
       >Expediente<select
@@ -254,10 +237,16 @@ onBeforeUnmount(cerrarVista)
         ><span class="sr-only">Tipo de Documento</span
         ><select v-model="tipo">
           <option value="">Tipo de Documento</option>
-          <option value="proyecto">Proyecto de Tesis</option>
-          <option value="tesis">Tesis Final</option>
+          <option value="proyecto">Informe de proyecto</option>
+          <option value="tesis">Informe de tesis</option>
           <option value="carta">Carta de aceptación</option>
           <option value="solicitud">Solicitud</option>
+          <option value="subsanacion">Subsanación</option>
+          <option value="conformidad">Conformidad técnica</option>
+          <option value="turnitin">Informe Turnitin</option>
+          <option value="propuesta">Propuesta de jurados</option>
+          <option value="observacion_jurado">Observaciones de jurados</option>
+          <option value="resolucion">Resolución</option>
         </select></label
       ><label
         ><span class="sr-only">Estado</span
@@ -267,12 +256,11 @@ onBeforeUnmount(cerrarVista)
           <option value="inactivo">Inactivo</option>
         </select></label
       ><label
-        ><span class="sr-only">Escuela Profesional</span
-        ><select
-          disabled
-          title="La escuela profesional no está disponible en los datos del expediente"
-        >
-          <option>Escuela Profesional</option>
+        ><span class="sr-only">Orden de documentos</span
+        ><select v-model="orden">
+          <option value="tramite">Orden del trámite</option>
+          <option value="recientes">Más recientes primero</option>
+          <option value="antiguos">Más antiguos primero</option>
         </select></label
       ><button class="clear-button" @click="limpiar">Limpiar</button>
     </div>
@@ -284,12 +272,14 @@ onBeforeUnmount(cerrarVista)
       <button class="button" @click="cargar">Reintentar</button>
     </div>
     <div v-else-if="!detalle" class="card empty">
-      <p>Aún no tienes expedientes registrados.</p>
-      <RouterLink class="button primary" :to="{ name: 'expedientes-nuevo' }"
-        >Registrar expediente</RouterLink
-      >
+      <p>Aún no hay documentos para consultar porque no tienes un expediente registrado.</p>
     </div>
     <template v-else>
+      <p class="library-context">
+        {{ detalle.cod_expediente }} · {{ detalle.etapa_actual?.nombre }} ·
+        {{ detalle.estado_actual?.nombre }}. Se muestran los archivos registrados en cada etapa,
+        incluidas sus correcciones y versiones anteriores.
+      </p>
       <h2>
         <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>Archivos del
         Expediente
@@ -300,6 +290,7 @@ onBeforeUnmount(cerrarVista)
             <thead>
               <tr>
                 <th>Nombre del Documento</th>
+                <th>Formato</th>
                 <th>Versión</th>
                 <th>Fecha de Subida</th>
                 <th>Responsable</th>
@@ -307,24 +298,43 @@ onBeforeUnmount(cerrarVista)
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in visibles" :key="item.ruta">
+              <tr v-for="item in visibles" :key="item.id">
                 <td>
                   <span class="document-name"
                     ><span class="material-symbols-outlined" aria-hidden="true">description</span
                     >{{ item.nombre }}</span
                   >
+                  <small class="document-context">
+                    {{ item.origen || 'Expediente'
+                    }}<template v-if="item.ronda"> · Ronda {{ item.ronda }}</template
+                    ><template v-if="item.intento"> · Intento {{ item.intento }}</template>
+                  </small>
                 </td>
+                <td>{{ item.formato?.toUpperCase() || 'No disponible' }}</td>
                 <td>
-                  <span class="version" :class="{ active: item.activo }">V{{ item.version }}</span>
+                  <span
+                    v-if="item.version != null"
+                    class="version"
+                    :class="{ active: item.activo }"
+                    title="Versión del documento"
+                    >V{{ item.version }}</span
+                  >
+                  <span
+                    v-else
+                    class="muted"
+                    title="Este registro tiene ronda de revisión, sin versión documental"
+                    >—</span
+                  >
                 </td>
-                <td class="muted">No disponible</td>
-                <td class="muted">No disponible</td>
+                <td class="muted">{{ item.fecha ? fecha(item.fecha) : 'No disponible' }}</td>
+                <td class="muted">{{ item.responsable || 'No disponible' }}</td>
                 <td>
                   <div class="actions">
                     <button
+                      v-if="item.formato === 'pdf'"
                       :disabled="ocupado"
                       :aria-label="`Ver ${item.nombre}`"
-                      title="Ver documento (DOCX se descarga)"
+                      title="Previsualizar documento"
                       @click="abrirArchivo(item.ruta, item.nombre)"
                     >
                       <span class="material-symbols-outlined" aria-hidden="true"
@@ -342,7 +352,7 @@ onBeforeUnmount(cerrarVista)
                 </td>
               </tr>
               <tr v-if="!visibles.length">
-                <td colspan="5" class="empty">
+                <td colspan="6" class="empty">
                   {{
                     documentos.length
                       ? 'No hay documentos que coincidan con los filtros.'
@@ -430,12 +440,22 @@ onBeforeUnmount(cerrarVista)
         <h2 id="preview-title">{{ vista?.nombre }}</h2>
         <button class="button" @click="cerrarVista">Cerrar</button>
       </header>
-      <iframe v-if="vista" :src="vista.url" :title="vista.nombre"></iframe>
+      <iframe v-if="vista?.url" :src="vista.url" :title="vista.nombre"></iframe>
     </dialog>
   </section>
 </template>
 
 <style scoped>
+.library-context {
+  margin-bottom: 20px;
+  color: #45464f;
+}
+.document-context {
+  display: block;
+  margin: 4px 0 0 36px;
+  color: #757681;
+  font-size: 12px;
+}
 .documents-view {
   max-width: 1440px;
   margin: 0 auto;
@@ -477,13 +497,6 @@ h1 {
   font-size: 12px;
   line-height: 16px;
   text-decoration: none;
-}
-.button.primary {
-  padding: 10px 20px;
-  background: #283a70;
-  color: white;
-  border-color: #283a70;
-  white-space: nowrap;
 }
 .button .material-symbols-outlined {
   font-size: 18px;

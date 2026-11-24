@@ -4,11 +4,15 @@ import axios from 'axios'
 import { RouterLink } from 'vue-router'
 import api, { descargarDocumentoPrivado } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { documentosSubsanadosUdi } from '@/utils/udiExpedientes'
 import type {
+  EventoHistorialExpediente,
   Expediente,
   ExpedienteDetalle,
   ExpedienteDetalleResponse,
   ParticipanteExpediente,
+  RevisionDocumentariaConsulta,
+  RevisionDocumentariaResponse,
 } from '@/types/api'
 
 const expedientes = ref<Expediente[]>([])
@@ -28,6 +32,7 @@ interface JuradoResumen {
   designacion: { estado: string; version: number } | null
 }
 const asesor = ref<DocenteResumen | null>(null)
+const coasesor = ref<DocenteResumen | null>(null)
 const jurados = ref<JuradoResumen[]>([])
 const errorEquipo = ref('')
 const cargos = ['Presidente', 'Secretario', 'Vocal']
@@ -55,11 +60,11 @@ function jurado(cargo: string) {
 }
 const seleccionado = ref<number | null>(null)
 const detalle = ref<ExpedienteDetalle | null>(null)
+const revision = ref<RevisionDocumentariaConsulta | null>(null)
 const cargando = ref(true)
 const error = ref('')
 const errorDescarga = ref('')
 const descargando = ref(false)
-const verTodosArchivos = ref(false)
 const verTodoHistorial = ref(false)
 const informe = computed(
   () =>
@@ -78,11 +83,19 @@ const historial = computed(() =>
 )
 const archivos = computed(() => {
   const documentos: { nombre: string; detalle: string; ruta: string; icono: string }[] = []
+  for (const item of documentosSubsanadosUdi(detalle.value, revision.value)) {
+    documentos.push({
+      nombre: `${item.nombre} · versión ${item.version}`,
+      detalle: 'Documento subsanado',
+      ruta: item.subsanacion.archivo_adjunto!,
+      icono: 'picture_as_pdf',
+    })
+  }
   for (const item of [...(detalle.value?.informes ?? [])].reverse()) {
     if (item.estado !== 1) continue
     if (item.archivo_adjunto)
       documentos.push({
-        nombre: `${item.es_tesis ? 'Tesis' : 'Proyecto'}_v${item.version}`,
+        nombre: `${item.es_tesis ? 'Tesis' : 'Proyecto de tesis'} · versión ${item.version}`,
         detalle: item.titulo,
         ruta: item.archivo_adjunto,
         icono: 'picture_as_pdf',
@@ -97,7 +110,7 @@ const archivos = computed(() => {
   }
   if (detalle.value?.solicitud_adjunta && detalle.value.estado === 1)
     documentos.push({
-      nombre: `Solicitud_${detalle.value.cod_expediente}`,
+      nombre: 'Solicitud · versión 1',
       detalle: 'Solicitud de registro',
       ruta: detalle.value.solicitud_adjunta,
       icono: 'description',
@@ -118,30 +131,61 @@ function fecha(valor: string) {
     ? valor
     : new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
+function nombreAccion(accion: string) {
+  const nombres: Record<string, string> = {
+    registro_expediente_digital: 'Registro de expediente digital',
+    resolucion_conformidad_emitida: 'Resolución de conformidad emitida',
+    resolucion_designacion_jurados_emitida: 'Resolución de designación de jurados emitida',
+    resolucion_aprobacion_proyecto_emitida: 'Resolución de aprobación del proyecto emitida',
+    resolucion_aprobacion_tesis_final_emitida: 'Resolución de aprobación de tesis final emitida',
+  }
+
+  const texto = nombres[accion] ?? accion.replaceAll('_', ' ')
+  return texto.charAt(0).toUpperCase() + texto.slice(1)
+}
+function actorHistorial(evento: EventoHistorialExpediente) {
+  const roles = evento.responsable?.roles ?? []
+  const area = roles.find((rol) => ['udi', 'secretaria_academica', 'decanatura'].includes(rol.codigo))
+  if (area) return area.nombre
+  const rol = roles.find((item) => ['tesista', 'docente'].includes(item.codigo)) ?? roles[0]
+  const nombre = evento.responsable?.nombre?.trim()
+  return rol && nombre ? `${rol.nombre} - ${nombre}` : nombre || rol?.nombre || 'Sistema'
+}
 async function cargarDetalle() {
   if (seleccionado.value === null) return
   cargando.value = true
   error.value = ''
   errorDescarga.value = ''
   detalle.value = null
+  revision.value = null
   asesor.value = null
+  coasesor.value = null
   jurados.value = []
   errorEquipo.value = ''
-  verTodosArchivos.value = false
   verTodoHistorial.value = false
   try {
-    const { data } = await api.get<ExpedienteDetalleResponse>(`/expedientes/${seleccionado.value}`)
+    const [{ data }, respuestaRevision] = await Promise.all([
+      api.get<ExpedienteDetalleResponse>(`/expedientes/${seleccionado.value}`),
+      api.get<RevisionDocumentariaResponse>(`/expedientes/${seleccionado.value}/revision-documentaria`),
+    ])
     detalle.value = data.data
+    revision.value = respuestaRevision.data.data
     if (!data.data) error.value = 'El expediente no contiene información de detalle.'
     if (data.data) {
-      const [respuestaAsesor, respuestaJurados] = await Promise.allSettled([
+      const [respuestaAsesor, respuestaCoasesor, respuestaJurados] = await Promise.allSettled([
         informe.value?.id_asesor
           ? api.get<DocenteResumen>(`/docentes/${informe.value.id_asesor}`)
+          : Promise.resolve(null),
+        informe.value?.id_coasesor
+          ? api.get<DocenteResumen>(`/docentes/${informe.value.id_coasesor}`)
           : Promise.resolve(null),
         api.get<JuradoResumen[]>('/jurados-expediente'),
       ])
       if (respuestaAsesor.status === 'fulfilled') asesor.value = respuestaAsesor.value?.data ?? null
       else errorEquipo.value = 'No se pudo consultar el asesor.'
+      if (respuestaCoasesor.status === 'fulfilled')
+        coasesor.value = respuestaCoasesor.value?.data ?? null
+      else errorEquipo.value += ' No se pudo consultar el coasesor.'
       if (respuestaJurados.status === 'fulfilled')
         jurados.value = respuestaJurados.value.data.filter(
           (item) => Number(item.id_expediente) === seleccionado.value,
@@ -159,9 +203,12 @@ async function cargarDetalle() {
 async function cargar() {
   cargando.value = true
   error.value = ''
+  const usuarioConsultado = auth.usuario
   try {
     const { data } = await api.get<Expediente[]>('/expedientes')
+    if (auth.usuario !== usuarioConsultado) return
     expedientes.value = data
+    auth.sincronizarExpedientes(data)
     seleccionado.value =
       data.find((item) => item.id_expediente === seleccionado.value)?.id_expediente ??
       data[0]?.id_expediente ??
@@ -225,10 +272,6 @@ onMounted(cargar)
           <span class="status" :class="{ observed: observado }"
             ><span aria-hidden="true">●</span
             >{{ detalle.estado_actual?.nombre ?? 'Sin estado informado' }}</span
-          ><RouterLink
-            class="button primary"
-            :to="{ name: 'observaciones', query: { expediente: detalle.id_expediente } }"
-            >Subsanar Expediente</RouterLink
           >
         </div>
       </header>
@@ -255,18 +298,14 @@ onMounted(cargar)
                 }}</span>
                 <div>
                   <h3>{{ nombre(tesista) }}</h3>
-                  <small v-if="indice">Segundo tesista</small><small>Código: no disponible</small>
+                  <small>DNI: {{ tesista!.dni || 'No disponible' }}</small>
                   <p class="contact">
                     <span class="material-symbols-outlined" aria-hidden="true">mail</span
-                    >{{
-                      tesista!.id_alumno === auth.usuario?.alumno?.id_alumno
-                        ? auth.usuario?.correo_electronico
-                        : 'Correo no disponible'
-                    }}
+                    >{{ tesista!.correo_electronico || 'Correo no disponible' }}
                   </p>
                   <p class="contact">
-                    <span class="material-symbols-outlined" aria-hidden="true">call</span>Teléfono
-                    no disponible
+                    <span class="material-symbols-outlined" aria-hidden="true">call</span
+                    >{{ tesista!.celular || 'Teléfono no disponible' }}
                   </p>
                 </div>
               </div>
@@ -290,6 +329,16 @@ onMounted(cargar)
                     ><span class="material-symbols-outlined" aria-hidden="true">check_circle</span
                     >Carta de aceptación disponible</span
                   ><small v-else class="approval-pending">Aprobación final no disponible</small>
+                </div>
+              </div>
+              <div v-if="informe?.id_coasesor" class="person">
+                <span class="avatar material-symbols-outlined" aria-hidden="true"
+                  >person_search</span
+                >
+                <div>
+                  <small>Coasesor</small>
+                  <h3>{{ nombreDocente(coasesor) }}</h3>
+                  <small>{{ coasesor?.escuela?.nombre ?? 'Escuela no disponible' }}</small>
                 </div>
               </div>
             </section>
@@ -346,17 +395,10 @@ onMounted(cargar)
                   <span class="material-symbols-outlined" aria-hidden="true">folder_open</span
                   >Documentos Activos
                 </h2>
-                <button
-                  class="text-button"
-                  :aria-expanded="verTodosArchivos"
-                  @click="verTodosArchivos = !verTodosArchivos"
-                >
-                  {{ verTodosArchivos ? 'Ver menos' : 'Ver todos' }}
-                </button>
               </div>
-              <ul v-if="archivos.length" class="files-list">
+              <ul v-if="archivos.length" class="files-list" tabindex="0" aria-label="Documentos activos por versión">
                 <li
-                  v-for="archivo in verTodosArchivos ? archivos : archivos.slice(0, 3)"
+                  v-for="archivo in archivos"
                   :key="archivo.ruta"
                 >
                   <span
@@ -417,6 +459,13 @@ onMounted(cargar)
             <span class="material-symbols-outlined" aria-hidden="true">track_changes</span
             >Trazabilidad del Expediente
           </h2>
+          <div v-if="detalle.etapa_actual" class="current-stage" aria-label="Etapa actual">
+            <span class="material-symbols-outlined" aria-hidden="true">flag</span>
+            <div>
+              <span class="current-stage-label">Etapa actual</span>
+              <p>{{ detalle.etapa_actual.nombre }}</p>
+            </div>
+          </div>
           <ol v-if="historial.length" class="timeline">
             <li
               v-for="(evento, indice) in verTodoHistorial ? historial : historial.slice(0, 5)"
@@ -427,15 +476,9 @@ onMounted(cargar)
                 indice === 0 && observado ? 'priority_high' : 'check'
               }}</span>
               <div class="timeline-copy">
-                <h3>
-                  {{
-                    evento.estado_nuevo?.nombre ??
-                    evento.etapa_nueva?.nombre ??
-                    'Movimiento registrado'
-                  }}
-                </h3>
+                <h3>{{ nombreAccion(evento.accion_realizada) }}</h3>
                 <time :datetime="evento.fecha_cambio">{{ fecha(evento.fecha_cambio) }}</time>
-                <p>{{ evento.accion_realizada }}</p>
+                <p>Actor: {{ actorHistorial(evento) }}</p>
               </div>
             </li>
           </ol>
@@ -733,10 +776,24 @@ small {
   line-height: 16px;
   white-space: nowrap;
 }
+.files-card {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: 258px;
+  min-width: 0;
+}
+.files-card .section-heading {
+  flex-shrink: 0;
+}
 .files-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .files-list li {
   display: flex;
@@ -821,13 +878,41 @@ button:disabled {
 .timeline-card {
   display: flex;
   flex-direction: column;
+  align-self: start;
+}
+.current-stage {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  color: #324583;
+  background: #32458308;
+  border-left: 2px solid #469b93;
+  border-radius: 4px;
+}
+.current-stage > .material-symbols-outlined {
+  margin-top: 2px;
+  font-size: 18px;
+  color: #469b93;
+}
+.current-stage-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.current-stage p {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
 }
 .timeline {
   position: relative;
   list-style: none;
   margin: 8px 0 0;
   padding: 0;
-  flex: 1;
 }
 .timeline::before {
   content: '';
@@ -841,6 +926,9 @@ button:disabled {
 .timeline li {
   position: relative;
   padding: 0 8px 24px 48px;
+}
+.timeline li:last-child {
+  padding-bottom: 0;
 }
 .timeline-marker {
   position: absolute;

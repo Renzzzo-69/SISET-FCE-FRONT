@@ -17,23 +17,28 @@ export const useAuthStore = defineStore('auth', () => {
   const inicializado = ref(false)
   const tieneExpediente = ref<boolean | null>(null)
   const errorExpediente = ref('')
+  const expedientes = ref<Expediente[]>([])
+  let revisionExpedientes = 0
+
+  function sincronizarExpedientes(data: Expediente[]) {
+    revisionExpedientes++
+    expedientes.value = data
+    const alumnoId = usuario.value?.alumno?.id_alumno
+    tieneExpediente.value = alumnoId != null && data.some(
+      (expediente) => Number(expediente.id_tesista) === Number(alumnoId) || Number(expediente.id_co_tesista) === Number(alumnoId),
+    )
+    errorExpediente.value = ''
+  }
 
   async function actualizarExpediente() {
     const usuarioConsultado = usuario.value
+    const revisionConsultada = revisionExpedientes
     try {
-      const { data } = await api.get<Expediente[]>('/expedientes')
-      if (usuario.value !== usuarioConsultado) return
-      const alumnoId = usuario.value?.alumno?.id_alumno
-      tieneExpediente.value =
-        alumnoId != null &&
-        data.some(
-          (expediente) =>
-            expediente.id_tesista === alumnoId || expediente.id_co_tesista === alumnoId,
-        )
-      errorExpediente.value = ''
+      const { data } = await api.get<Expediente[]>('/expedientes', { timeout: 20000 })
+      if (usuario.value !== usuarioConsultado || revisionConsultada !== revisionExpedientes) return
+      sincronizarExpedientes(data)
     } catch {
-      if (usuario.value !== usuarioConsultado) return
-      tieneExpediente.value = null
+      if (usuario.value !== usuarioConsultado || revisionConsultada !== revisionExpedientes) return
       errorExpediente.value = 'No se pudo comprobar su expediente. Intente nuevamente.'
     }
   }
@@ -56,6 +61,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function limpiarSesion() {
+    revisionExpedientes++
+    expedientes.value = []
     tieneExpediente.value = null
     errorExpediente.value = ''
     token.value = null
@@ -76,7 +83,7 @@ export const useAuthStore = defineStore('auth', () => {
     restaurando.value = true
 
     try {
-      const { data } = await api.get<MeResponse>('/me')
+      const { data } = await api.get<MeResponse>('/me', { timeout: 20000 })
       usuario.value = data.usuario
       return true
     } catch {
@@ -119,9 +126,11 @@ export const useAuthStore = defineStore('auth', () => {
   setUnauthorizedHandler(limpiarSesion)
 
   return {
+    expedientes,
     tieneExpediente,
     errorExpediente,
     actualizarExpediente,
+    sincronizarExpedientes,
     moduloTesistaDisponible,
     token,
     usuario,

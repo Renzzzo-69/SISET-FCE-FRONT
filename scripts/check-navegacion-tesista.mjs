@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import ts from 'typescript'
 
 const source = readFileSync(new URL('../src/router/index.ts', import.meta.url), 'utf8')
 let guard
@@ -16,10 +17,13 @@ const auth = {
   moduloTesistaDisponible: () => true,
 }
 new Function('router', 'useAuthStore',
-  source.slice(source.indexOf('router.beforeEach('), source.indexOf('export default router')),
+  ts.transpileModule(
+    source.slice(source.indexOf('router.beforeEach('), source.indexOf('export default router')),
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } },
+  ).outputText,
 )({ beforeEach: (callback) => { guard = callback } }, () => auth)
 
-const navegar = (name) => guard({ name, meta: { requiereAutenticacion: true } })
+const navegar = (name) => guard({ name, matched: [], meta: { requiereAutenticacion: true } })
 assert.equal(await navegar('dashboard'), true)
 assert.equal(consultas, 1, 'La primera entrada comprueba el expediente')
 // Un servidor que no responde no debe bloquear las siguientes navegaciones.

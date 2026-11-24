@@ -1,53 +1,162 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
+import axios from 'axios'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import type { Expediente } from '@/types/api'
 
+type Perfil = {
+  correo_electronico: string
+  celular: string | null
+  nombres: string | null
+  apellido_paterno: string | null
+  apellido_materno: string | null
+  dni: string | null
+  programa_academico: string | null
+  puede_editar_celular: boolean
+  tiene_foto: boolean
+}
 const auth = useAuthStore()
+const perfil = ref<Perfil | null>(null)
 const expedientes = ref<Expediente[]>([])
 const cargando = ref(true)
 const error = ref('')
-const expediente = computed(() =>
-  expedientes.value.find(
-    (item) =>
-      item.id_tesista === auth.usuario?.alumno?.id_alumno ||
-      item.id_co_tesista === auth.usuario?.alumno?.id_alumno,
-  ),
-)
-const participante = computed(() =>
-  expediente.value?.id_tesista === auth.usuario?.alumno?.id_alumno
-    ? expediente.value?.tesista
-    : expediente.value?.co_tesista,
-)
+const errorExpediente = ref('')
+const errorFormulario = ref('')
+const mensaje = ref('')
+const guardando = ref(false)
+const celular = ref('')
+const foto = ref<File | null>(null)
+const fotoUrl = ref('')
+const fotoGuardada = ref('')
+const selectorFoto = ref<HTMLInputElement | null>(null)
+let desmontado = false
+const expediente = computed(() => {
+  const id = auth.usuario?.alumno?.id_alumno
+  return id == null
+    ? undefined
+    : expedientes.value.find((item) => item.id_tesista === id || item.id_co_tesista === id)
+})
 const nombre = computed(() =>
-  participante.value
-    ? [
-        participante.value.nombres,
-        participante.value.apellido_paterno,
-        participante.value.apellido_materno,
-      ]
-        .filter(Boolean)
-        .join(' ')
-    : '',
+  [perfil.value?.nombres, perfil.value?.apellido_paterno, perfil.value?.apellido_materno]
+    .filter(Boolean)
+    .join(' '),
 )
 const etiquetaPerfil = computed(
   () =>
     `${auth.tieneRol('tesista') ? 'Tesista' : 'Usuario'} ${auth.usuario?.estado === 1 ? 'Activo' : 'Inactivo'}`,
 )
+const hayCambios = computed(
+  () => foto.value !== null || celular.value.trim() !== (perfil.value?.celular ?? ''),
+)
+function detalleError(err: unknown, fallback: string) {
+  if (axios.isAxiosError(err)) {
+    const datos = err.response?.data
+    return datos?.errors?.celular?.[0] ?? datos?.errors?.foto?.[0] ?? datos?.message ?? fallback
+  }
+  return fallback
+}
+function limpiarVistaPrevia() {
+  if (fotoUrl.value && fotoUrl.value !== fotoGuardada.value) URL.revokeObjectURL(fotoUrl.value)
+}
+function descartar() {
+  limpiarVistaPrevia()
+  fotoUrl.value = fotoGuardada.value
+  foto.value = null
+  celular.value = perfil.value?.celular ?? ''
+  errorFormulario.value = ''
+  mensaje.value = ''
+}
+function seleccionarFoto(event: Event) {
+  const input = event.target as HTMLInputElement
+  const archivo = input.files?.[0]
+  input.value = ''
+  if (!archivo) return
+  errorFormulario.value = ''
+  mensaje.value = ''
+  if (
+    !['image/jpeg', 'image/png', 'image/webp'].includes(archivo.type) ||
+    archivo.size > 2 * 1024 * 1024
+  ) {
+    errorFormulario.value = 'Selecciona una imagen JPG, PNG o WebP de hasta 2 MB.'
+    return
+  }
+  limpiarVistaPrevia()
+  foto.value = archivo
+  fotoUrl.value = URL.createObjectURL(archivo)
+}
 async function cargar() {
   cargando.value = true
   error.value = ''
+  errorExpediente.value = ''
+  const [personal, lista] = await Promise.allSettled([
+    api.get<Perfil>('/configuracion/perfil'),
+    api.get<Expediente[]>('/expedientes'),
+  ])
+  if (desmontado) return
+  if (personal.status === 'fulfilled') {
+    perfil.value = personal.value.data
+    descartar()
+    if (perfil.value.tiene_foto && !fotoGuardada.value) {
+      try {
+        const { data } = await api.get<Blob>('/configuracion/perfil/foto', { responseType: 'blob' })
+        if (!desmontado) fotoUrl.value = fotoGuardada.value = URL.createObjectURL(data)
+      } catch {
+        error.value = 'No se pudo cargar tu foto de perfil. Puedes reintentar.'
+      }
+    }
+  } else error.value = 'No se pudieron cargar tus datos personales. Reintenta la consulta.'
+  if (lista.status === 'fulfilled') expedientes.value = lista.value.data
+  else errorExpediente.value = 'No se pudo consultar el expediente vinculado a tu perfil.'
+  cargando.value = false
+}
+async function guardarCambios() {
+  if (guardando.value || cargando.value || !perfil.value || !hayCambios.value) return
+  errorFormulario.value = ''
+  mensaje.value = ''
+  const telefono = celular.value.trim()
+  const cambioCelular = telefono !== (perfil.value.celular ?? '')
+  if (
+    cambioCelular &&
+    (!/^\+?[0-9()\s-]{7,15}$/.test(telefono) || (telefono.match(/\d/g)?.length ?? 0) < 7)
+  ) {
+    errorFormulario.value = 'Ingresa un celular válido de 7 a 15 dígitos (máximo 15 caracteres).'
+    return
+  }
+  guardando.value = true
+  let celularGuardado = false
   try {
-    const { data } = await api.get<Expediente[]>('/expedientes')
-    expedientes.value = data
-  } catch {
-    error.value = 'No se pudo consultar el nombre y el expediente vinculado a tu perfil.'
+    if (cambioCelular && perfil.value.puede_editar_celular) {
+      const { data } = await api.put<{ celular: string }>('/configuracion/perfil', {
+        celular: telefono,
+      })
+      perfil.value.celular = celular.value = data.celular
+      celularGuardado = true
+    }
+    if (foto.value) {
+      const body = new FormData()
+      body.append('foto', foto.value)
+      await api.post('/configuracion/perfil/foto', body)
+      if (fotoGuardada.value) URL.revokeObjectURL(fotoGuardada.value)
+      fotoGuardada.value = fotoUrl.value
+      foto.value = null
+      perfil.value.tiene_foto = true
+    }
+    mensaje.value = 'Los cambios se guardaron correctamente.'
+  } catch (err) {
+    errorFormulario.value =
+      (celularGuardado ? 'El celular se guardó. ' : '') +
+      detalleError(err, 'No se pudieron guardar los cambios. Intenta nuevamente.')
   } finally {
-    cargando.value = false
+    guardando.value = false
   }
 }
 onMounted(cargar)
+onBeforeUnmount(() => {
+  desmontado = true
+  limpiarVistaPrevia()
+  if (fotoGuardada.value) URL.revokeObjectURL(fotoGuardada.value)
+})
 </script>
 
 <template>
@@ -60,17 +169,28 @@ onMounted(cargar)
       <aside class="profile-sidebar">
         <section class="card profile-summary" :aria-busy="cargando">
           <div class="avatar-wrapper">
-            <span class="avatar material-symbols-outlined" aria-label="Sin foto de perfil"
+            <img v-if="fotoUrl" :src="fotoUrl" class="avatar profile-photo" alt="Foto de perfil" />
+            <span v-else class="avatar material-symbols-outlined" aria-label="Sin foto de perfil"
               >person</span
             ><button
               class="edit-avatar"
-              disabled
-              title="Edición de foto pendiente de implementación"
-              aria-label="Cambiar foto de perfil: no disponible"
+              type="button"
+              :disabled="cargando || guardando || !perfil"
+              title="Cambiar foto de perfil"
+              aria-label="Cambiar foto de perfil"
+              @click="selectorFoto?.click()"
             >
               <span class="material-symbols-outlined" aria-hidden="true">edit</span>
             </button>
           </div>
+          <input
+            ref="selectorFoto"
+            class="sr-only"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            aria-label="Seleccionar foto de perfil"
+            @change="seleccionarFoto"
+          />
           <h2>{{ nombre || 'Mi perfil' }}</h2>
           <span class="role-badge">{{ etiquetaPerfil }}</span>
           <dl class="file-summary">
@@ -80,7 +200,8 @@ onMounted(cargar)
                 {{
                   cargando
                     ? 'Cargando…'
-                    : (expediente?.cod_expediente ?? (error ? 'No disponible' : 'Sin expediente'))
+                    : (expediente?.cod_expediente ??
+                      (errorExpediente ? 'No disponible' : 'Sin expediente'))
                 }}
               </dd>
             </div>
@@ -93,8 +214,8 @@ onMounted(cargar)
               </dd>
             </div>
           </dl>
-          <div v-if="error" class="load-error" role="alert">
-            <p>{{ error }}</p>
+          <div v-if="error || errorExpediente" class="load-error" role="alert">
+            <p>{{ error || errorExpediente }}</p>
             <button @click="cargar">Reintentar</button>
           </div>
         </section>
@@ -137,8 +258,8 @@ onMounted(cargar)
           <div>
             <h2>Perfil de usuario</h2>
             <p>
-              La edición de contacto y foto aún no está disponible. Los datos no proporcionados se
-              muestran como “No disponible”.
+              Puedes actualizar tu celular y foto de perfil. Los datos personales y el correo
+              institucional son de solo lectura. Foto: JPG, PNG o WebP de hasta 2 MB.
             </p>
           </div>
         </div>
@@ -156,12 +277,19 @@ onMounted(cargar)
                 :value="nombre || (cargando ? 'Cargando…' : 'No disponible')"
                 readonly
                 autocomplete="name" /></label
-            ><label>Documento de Identidad (DNI)<input value="No disponible" readonly /></label
+            ><label
+              >Documento de Identidad (DNI)<input
+                :value="perfil?.dni || 'No disponible'"
+                readonly /></label
             ><label>Facultad<input value="Ciencias Económicas" readonly /></label
-            ><label>Programa Académico<input value="No disponible" readonly /></label>
+            ><label
+              >Programa Académico<input
+                :value="perfil?.programa_academico || 'No disponible'"
+                readonly
+            /></label>
           </div>
         </section>
-        <section class="card contact-data">
+        <form class="card contact-data" :aria-busy="guardando" @submit.prevent="guardarCambios">
           <h2>
             <span class="material-symbols-outlined" aria-hidden="true">contact_mail</span>Datos de
             Contacto
@@ -173,7 +301,7 @@ onMounted(cargar)
                 ><input
                   id="profile-email"
                   type="email"
-                  :value="auth.usuario?.correo_electronico ?? ''"
+                  :value="perfil?.correo_electronico ?? auth.usuario?.correo_electronico ?? ''"
                   readonly
                   autocomplete="email" /></span
               ><small>Este correo se usará para notificaciones oficiales.</small></label
@@ -183,30 +311,66 @@ onMounted(cargar)
                 ><input
                   id="profile-phone"
                   type="tel"
-                  placeholder="No disponible"
-                  readonly
+                  v-model="celular"
+                  placeholder="Ingrese su celular"
+                  maxlength="15"
+                  :disabled="cargando || guardando || !perfil?.puede_editar_celular"
+                  :aria-invalid="Boolean(errorFormulario)"
+                  aria-describedby="contact-feedback"
                   autocomplete="tel" /></span
               ><small>Solo para contacto urgente por parte de coordinación.</small></label
             >
           </div>
+          <p v-if="perfil && !perfil.puede_editar_celular" class="contact-feedback">
+            Tu cuenta no tiene datos personales asociados. Contacta a coordinación para
+            registrarlos.
+          </p>
+          <p
+            id="contact-feedback"
+            class="contact-feedback"
+            :class="{ 'load-error': errorFormulario }"
+            :role="errorFormulario ? 'alert' : 'status'"
+          >
+            {{ errorFormulario || mensaje }}
+          </p>
           <div class="contact-actions">
-            <button disabled title="La edición de contacto aún no está disponible">
+            <button
+              type="button"
+              :disabled="!hayCambios || guardando || cargando"
+              @click="descartar"
+            >
               Descartar Cambios</button
             ><button
               class="save-button"
-              disabled
-              title="La edición de contacto aún no está disponible"
+              type="submit"
+              :disabled="!hayCambios || guardando || cargando || !perfil"
             >
-              <span class="material-symbols-outlined" aria-hidden="true">save</span>Guardar Cambios
+              <span class="material-symbols-outlined" aria-hidden="true">save</span
+              >{{ guardando ? 'Guardando…' : 'Guardar Cambios' }}
             </button>
           </div>
-        </section>
+        </form>
       </div>
     </div>
   </section>
 </template>
 
 <style scoped>
+.profile-photo {
+  object-fit: cover;
+}
+.contact-feedback {
+  margin-top: 12px;
+  font-size: 12px;
+}
+button:not(:disabled) {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .profile-view {
   max-width: 1280px;
   margin: 0 auto;

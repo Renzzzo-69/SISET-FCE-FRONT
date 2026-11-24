@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import api from '@/services/api'
+import HistorialCambios from '@/components/HistorialCambios.vue'
 import type { Expediente, ExpedienteDetalle, ExpedienteDetalleResponse } from '@/types/api'
 
 interface Docente {
@@ -10,6 +11,8 @@ interface Docente {
   apellido_paterno: string
   apellido_materno: string
   estado?: number
+  dni?: string | null
+  celular?: string | null
   usuario?: { correo_electronico: string } | null
   escuela?: { nombre: string } | null
 }
@@ -26,12 +29,30 @@ const expedientes = ref<Expediente[]>([])
 const seleccionado = ref<number | null>(null)
 const detalle = ref<ExpedienteDetalle | null>(null)
 const asesor = ref<Docente | null>(null)
+const coasesor = ref<Docente | null>(null)
 const jurados = ref<Jurado[]>([])
 const cargando = ref(true)
 const error = ref('')
 const errorAsesor = ref('')
+const errorCoasesor = ref('')
 const errorJurados = ref('')
 const cargos = ['Presidente', 'Secretario', 'Vocal']
+const equipoAsesor = computed(() => [
+  {
+    clave: 'asesor',
+    titulo: 'Asesor',
+    docente: asesor.value,
+    id: informe.value?.id_asesor,
+    error: errorAsesor.value,
+  },
+  {
+    clave: 'coasesor',
+    titulo: 'Coasesor',
+    docente: coasesor.value,
+    id: informe.value?.id_coasesor,
+    error: errorCoasesor.value,
+  },
+])
 const informe = computed(
   () =>
     [...(detalle.value?.informes ?? [])]
@@ -65,11 +86,17 @@ async function cargarAsignaciones() {
     informe.value?.id_asesor
       ? api.get<Docente>(`/docentes/${informe.value.id_asesor}`)
       : Promise.resolve(null),
-    api.get<Jurado[]>('/jurados-expediente'),
+    informe.value?.id_coasesor
+      ? api.get<Docente>(`/docentes/${informe.value.id_coasesor}`)
+      : Promise.resolve(null),
+    api.get<Jurado[]>('/jurados-expediente', { params: { id_expediente: seleccionado.value } }),
   ])
-  const [respuestaAsesor, respuestaJurados] = respuestas
+  const [respuestaAsesor, respuestaCoasesor, respuestaJurados] = respuestas
   if (respuestaAsesor.status === 'fulfilled') asesor.value = respuestaAsesor.value?.data ?? null
   else errorAsesor.value = 'No se pudo consultar la información del asesor.'
+  if (respuestaCoasesor.status === 'fulfilled')
+    coasesor.value = respuestaCoasesor.value?.data ?? null
+  else errorCoasesor.value = 'No se pudo consultar la información del coasesor.'
   if (respuestaJurados.status === 'fulfilled')
     jurados.value = respuestaJurados.value.data.filter(
       (item) => Number(item.id_expediente) === seleccionado.value,
@@ -81,9 +108,11 @@ async function cargarDetalle() {
   cargando.value = true
   error.value = ''
   errorAsesor.value = ''
+  errorCoasesor.value = ''
   errorJurados.value = ''
   detalle.value = null
   asesor.value = null
+  coasesor.value = null
   jurados.value = []
   try {
     const { data } = await api.get<ExpedienteDetalleResponse>(`/expedientes/${seleccionado.value}`)
@@ -139,66 +168,81 @@ onMounted(cargar)
       <RouterLink :to="{ name: 'expedientes-nuevo' }">Registrar expediente</RouterLink>
     </div>
     <div v-else class="advisors-grid">
-      <section class="card advisor-card">
-        <header class="section-heading">
-          <h2>
-            <span class="material-symbols-outlined" aria-hidden="true">school</span>Asesor Asignado
-          </h2>
-          <span class="badge">{{
-            asesor
-              ? Number(asesor.estado) === 1
-                ? 'Activo'
-                : 'Inactivo'
-              : errorAsesor
-                ? 'Sin información'
-                : informe?.id_asesor
-                  ? 'No disponible'
-                  : 'Pendiente'
-          }}</span>
-        </header>
-        <div class="advisor-body">
-          <span class="advisor-avatar material-symbols-outlined" aria-label="Sin foto disponible"
-            >person</span
-          >
-          <h3>
-            {{
-              asesor
-                ? nombre(asesor)
-                : errorAsesor
-                  ? 'Información no disponible'
-                  : informe?.id_asesor
-                    ? 'Asesor no disponible'
-                    : 'Asesor por asignar'
-            }}
-          </h3>
-          <p class="school">{{ asesor?.escuela?.nombre ?? 'Escuela no disponible' }}</p>
-          <div class="advisor-contact">
-            <p>
-              <span class="material-symbols-outlined" aria-hidden="true">mail</span
-              >{{ asesor?.usuario?.correo_electronico ?? 'Correo no disponible' }}
-            </p>
-            <p>
-              <span class="material-symbols-outlined" aria-hidden="true">calendar_today</span
-              >Asignación: fecha no disponible
-            </p>
+      <div class="advisory-grid">
+        <section v-for="persona in equipoAsesor" :key="persona.clave" class="card advisor-card">
+          <header class="section-heading">
+            <h2>
+              <span class="material-symbols-outlined" aria-hidden="true">school</span
+              >{{ persona.titulo }}
+            </h2>
+            <span class="badge">{{
+              persona.docente
+                ? Number(persona.docente.estado) === 1
+                  ? 'Activo'
+                  : 'Inactivo'
+                : persona.error
+                  ? 'Sin información'
+                  : persona.id
+                    ? 'No disponible'
+                    : 'Pendiente'
+            }}</span>
+          </header>
+          <div class="advisor-body">
+            <span class="advisor-avatar material-symbols-outlined" aria-label="Sin foto disponible"
+              >person</span
+            >
+            <h3>
+              {{
+                persona.docente
+                  ? nombre(persona.docente)
+                  : persona.error
+                    ? 'Información no disponible'
+                    : persona.id
+                      ? `${persona.titulo} no disponible`
+                      : `${persona.titulo} sin asignar`
+              }}
+            </h3>
+            <p class="school">{{ persona.docente?.escuela?.nombre ?? 'Escuela no disponible' }}</p>
+            <div class="advisor-contact">
+              <p>
+                <span class="material-symbols-outlined" aria-hidden="true">mail</span>
+                <a
+                  v-if="persona.docente?.usuario?.correo_electronico"
+                  :href="`mailto:${persona.docente.usuario.correo_electronico}`"
+                  >{{ persona.docente.usuario.correo_electronico }}</a
+                >
+                <span v-else>Correo no registrado</span>
+              </p>
+              <p>
+                <span class="material-symbols-outlined" aria-hidden="true">call</span>
+                <a v-if="persona.docente?.celular" :href="`tel:${persona.docente.celular}`">{{
+                  persona.docente.celular
+                }}</a>
+                <span v-else>Teléfono no registrado</span>
+              </p>
+              <p>
+                <span class="material-symbols-outlined" aria-hidden="true">badge</span>
+                <span>DNI: {{ persona.docente?.dni || 'No registrado' }}</span>
+              </p>
+            </div>
+            <div v-if="persona.error" class="error" role="alert">
+              <p>{{ persona.error }}</p>
+              <button @click="cargarDetalle">Reintentar</button>
+            </div>
           </div>
-          <div v-if="errorAsesor" class="error" role="alert">
-            <p>{{ errorAsesor }}</p>
-            <button @click="cargarDetalle">Reintentar</button>
-          </div>
-        </div>
-        <footer>
-          <RouterLink
-            :to="{
-              name: 'expedientes-detalle',
-              params: { id: detalle.id_expediente },
-              hash: '#historial',
-            }"
-            ><span class="material-symbols-outlined" aria-hidden="true">history</span>Ver Historial
-            del Expediente</RouterLink
-          >
-        </footer>
-      </section>
+          <footer>
+            <RouterLink
+              :to="{
+                name: 'expedientes-detalle',
+                params: { id: detalle.id_expediente },
+                hash: '#historial',
+              }"
+              ><span class="material-symbols-outlined" aria-hidden="true">history</span>Ver
+              Historial del Expediente</RouterLink
+            >
+          </footer>
+        </section>
+      </div>
       <section class="card jury-card">
         <header class="section-heading">
           <h2>
@@ -258,10 +302,40 @@ onMounted(cargar)
                     : 'Por asignar'
               }}
             </h3>
+            <p v-if="juradoPorCargo(cargo)?.docente?.escuela" class="school">
+              {{ juradoPorCargo(cargo)?.docente?.escuela?.nombre }}
+            </p>
+            <dl v-if="juradoPorCargo(cargo)" class="jury-contact">
+              <div>
+                <dt>Correo</dt>
+                <dd>
+                  <a
+                    v-if="juradoPorCargo(cargo)?.docente?.usuario?.correo_electronico"
+                    :href="`mailto:${juradoPorCargo(cargo)?.docente?.usuario?.correo_electronico}`"
+                    >{{ juradoPorCargo(cargo)?.docente?.usuario?.correo_electronico }}</a
+                  ><span v-else>No registrado</span>
+                </dd>
+              </div>
+              <div>
+                <dt>Teléfono</dt>
+                <dd>
+                  <a
+                    v-if="juradoPorCargo(cargo)?.docente?.celular"
+                    :href="`tel:${juradoPorCargo(cargo)?.docente?.celular}`"
+                    >{{ juradoPorCargo(cargo)?.docente?.celular }}</a
+                  ><span v-else>No registrado</span>
+                </dd>
+              </div>
+              <div>
+                <dt>DNI</dt>
+                <dd>{{ juradoPorCargo(cargo)?.docente?.dni || 'No registrado' }}</dd>
+              </div>
+            </dl>
           </article>
         </div>
       </section>
     </div>
+    <HistorialCambios v-if="seleccionado && !cargando" :expediente="seleccionado" />
   </section>
 </template>
 
@@ -292,9 +366,50 @@ h1 {
 }
 .advisors-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2.08fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
   align-items: stretch;
+}
+.advisory-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.jury-contact {
+  width: 100%;
+  margin: 20px 0 0;
+  text-align: left;
+  border-top: 1px solid #c5c6d180;
+  padding-top: 16px;
+}
+.jury-contact > div + div {
+  margin-top: 12px;
+}
+.jury-contact dt {
+  color: #757681;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.jury-contact dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.jury-contact a,
+.advisor-contact a {
+  color: #283a70;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.jury-contact a:hover,
+.advisor-contact a:hover {
+  text-decoration: underline;
+}
+@media (max-width: 600px) {
+  .advisory-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .card {
   background: white;
@@ -344,7 +459,7 @@ h2 .material-symbols-outlined {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 32px 16px;
+  padding: 24px 16px;
 }
 .advisor-avatar {
   display: grid;
@@ -401,7 +516,7 @@ h2 .material-symbols-outlined {
 .advisor-card footer a {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 4px;
   text-align: center;
   font-size: 12px;
@@ -455,7 +570,7 @@ h2 .material-symbols-outlined {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   padding: 24px 12px;
   text-align: center;
   border: 1px dashed #c5c6d1;

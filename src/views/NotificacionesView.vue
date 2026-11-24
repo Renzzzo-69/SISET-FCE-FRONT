@@ -1,83 +1,63 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useActividadTesistaStore } from '@/stores/actividadTesista'
+import { fechaAviso } from '@/services/resumenTesista'
+import { fechaPlazo, textoPlazo } from '@/services/plazos'
 
+const actividad = useActividadTesistaStore()
 const filtro = ref('Todas')
-const filtros = ['Todas', 'Plazos Próximos', 'Observaciones', 'Resoluciones']
-// Avisos ilustrativos de Notificaciones.html; pendientes de conexión con la API.
-const notificaciones = ref([
-  {
-    id: 1,
-    titulo: 'Vencimiento de subsanación',
-    texto:
-      'Te restan 48 horas para subir el documento de subsanación de la revisión de plan de tesis. Si no se entrega, el trámite será anulado.',
-    fecha: 'Hace 2 horas',
-    categoria: 'Plazos Próximos',
-    etiqueta: 'Plazo Crítico',
-    tono: 'urgent',
-    icono: 'schedule',
-    leida: false,
-    ruta: 'observaciones',
-  },
-  {
-    id: 2,
-    titulo: 'Revisión de Asesor completada',
-    texto:
-      'Tu asesor ha dejado 3 nuevas observaciones en el Capítulo II de tu borrador. Por favor revisa y corrige para continuar.',
-    fecha: 'Ayer, 15:30',
-    categoria: 'Observaciones',
-    etiqueta: 'Nueva Observación',
-    tono: 'warning',
-    icono: 'rate_review',
-    leida: false,
-    ruta: 'observaciones',
-  },
-  {
-    id: 3,
-    titulo: 'Resolución Decanal Emitida',
-    texto:
-      'Se ha cargado la resolución de nombramiento de jurados para tu sustentación. Ya puedes descargar el documento en la sección de Documentos y Resoluciones.',
-    fecha: '24 Oct, 09:15',
-    categoria: 'Resoluciones',
-    etiqueta: 'Resolución',
-    tono: 'success',
-    icono: 'task',
-    leida: true,
-    ruta: 'documentos',
-  },
-  {
-    id: 4,
-    titulo: 'Mantenimiento Programado',
-    texto:
-      'El sistema SISET-FCE estará en mantenimiento el día sábado 28 de octubre desde las 00:00 hasta las 04:00 horas.',
-    fecha: '20 Oct, 11:00',
-    categoria: 'Sistema',
-    etiqueta: 'Aviso del Sistema',
-    tono: 'system',
-    icono: 'info',
-    leida: true,
-    ruta: null,
-  },
-])
-const visibles = computed(() =>
+const filtros = ['Todas', 'Observaciones', 'Resoluciones', 'Sistema']
+const notificaciones = computed(() => actividad.avisos)
+const resumen = computed(() => actividad.resumen)
+const cargando = computed(() => actividad.cargando && !resumen.value)
+const errorLectura = ref('')
+const error = computed(() => errorLectura.value || actividad.error)
+const plazosAbiertos = computed(() => resumen.value?.plazos.filter((p) => !p.cierre) ?? [])
+const aviso = ref('')
+const detalleAbierto = ref<string | null>(null)
+const cantidadPorLote = 8
+const limiteVisible = ref(cantidadPorLote)
+const filtradas = computed(() =>
   notificaciones.value.filter(
     (item) => filtro.value === 'Todas' || item.categoria === filtro.value,
   ),
 )
+const visibles = computed(() => filtradas.value.slice(0, limiteVisible.value))
+const hayMas = computed(() => visibles.value.length < filtradas.value.length)
+const siguienteLote = computed(() =>
+  Math.min(cantidadPorLote, filtradas.value.length - visibles.value.length),
+)
+function verMas() {
+  limiteVisible.value += cantidadPorLote
+}
+watch(filtro, () => {
+  limiteVisible.value = cantidadPorLote
+  detalleAbierto.value = null
+})
 const sinLeer = computed(() => notificaciones.value.some((item) => !item.leida))
-const detalleAbierto = ref<number | null>(null)
-const aviso = ref('')
-function marcarTodas() {
-  notificaciones.value.forEach((item) => {
-    item.leida = true
-  })
-  aviso.value = 'Todos los avisos de ejemplo se marcaron como leídos en esta vista.'
+async function marcarTodas() {
+  if (actividad.guardando) return
+  errorLectura.value = ''
+  try {
+    await actividad.leer(notificaciones.value.filter((a) => !a.leida).map((a) => a.id))
+    aviso.value = 'Notificaciones marcadas como leídas.'
+  } catch { errorLectura.value = 'No se pudo guardar la lectura. Intenta nuevamente.' }
 }
-function verDetalle(id: number) {
+async function verDetalle(id: string) {
   detalleAbierto.value = detalleAbierto.value === id ? null : id
-  const item = notificaciones.value.find((notificacion) => notificacion.id === id)
-  if (item) item.leida = true
+  const item = notificaciones.value.find((item) => item.id === id)
+  if (item && !item.leida) {
+    errorLectura.value = ''
+    try { await actividad.leer([id]) }
+    catch { errorLectura.value = 'No se pudo guardar la lectura de esta notificación.' }
+  }
 }
+async function cargar() {
+  errorLectura.value = ''
+  await actividad.actualizar()
+}
+onMounted(cargar)
 </script>
 
 <template>
@@ -87,7 +67,7 @@ function verDetalle(id: number) {
         <h1 id="notifications-title">Notificaciones</h1>
         <p>Buzón de alertas y avisos del sistema.</p>
       </div>
-      <button class="mark-read" :disabled="!sinLeer" @click="marcarTodas">
+      <button class="mark-read" :disabled="!sinLeer || actividad.guardando" @click="marcarTodas">
         <span class="material-symbols-outlined" aria-hidden="true">done_all</span>Marcar todo como
         leído
       </button>
@@ -112,7 +92,11 @@ function verDetalle(id: number) {
             >{{ item }}{{ item === 'Todas' ? ` (${notificaciones.length})` : '' }}
           </button>
         </div>
-        <ul class="notification-list">
+        <p v-if="cargando" class="empty" role="status">Cargando notificaciones…</p>
+        <div v-if="error" class="empty" role="alert">
+          {{ error }} <button @click="cargar">Reintentar</button>
+        </div>
+        <ul v-if="!cargando" id="notification-list" class="notification-list">
           <li
             v-for="item in visibles"
             :key="item.id"
@@ -125,7 +109,7 @@ function verDetalle(id: number) {
             <div class="notification-copy">
               <div class="notification-meta">
                 <span class="notification-label">{{ item.etiqueta }}</span
-                ><span class="timestamp">{{ item.fecha }}</span>
+                ><span class="timestamp">{{ fechaAviso(item.fecha) }}</span>
               </div>
               <button
                 class="notification-title"
@@ -143,25 +127,22 @@ function verDetalle(id: number) {
                 :id="`notification-detail-${item.id}`"
                 class="notification-detail"
               >
-                <p>
-                  Aviso de ejemplo; consulta la información real de tu expediente en el módulo
-                  correspondiente.
-                </p>
-                <RouterLink v-if="item.ruta" :to="{ name: item.ruta }">{{
-                  item.ruta === 'documentos'
-                    ? 'Ir a Documentos y Resoluciones'
-                    : 'Ir a Observaciones y Subsanaciones'
-                }}</RouterLink>
+                <p>Aviso vinculado al expediente {{ resumen?.detalle?.cod_expediente }}.</p>
+                <RouterLink :to="item.destino">Consultar detalle del trámite</RouterLink>
               </div>
             </div>
           </li>
         </ul>
-        <p v-if="!visibles.length" class="empty" role="status">
+        <p v-if="!cargando && !error && !visibles.length" class="empty" role="status">
           No hay notificaciones en esta categoría.
         </p>
-        <div class="load-more">
-          <button disabled title="No hay más avisos disponibles en el ejemplo">
-            Cargar notificaciones anteriores
+        <div v-if="!cargando && filtradas.length" class="load-more">
+          <p role="status" aria-live="polite">
+            Mostrando {{ visibles.length }} de {{ filtradas.length }} notificaciones
+          </p>
+          <button v-if="hayMas" type="button" aria-controls="notification-list" @click="verMas">
+            Ver más notificaciones ({{ siguienteLote }})
+            <span class="material-symbols-outlined" aria-hidden="true">expand_more</span>
           </button>
         </div>
       </section>
@@ -174,68 +155,25 @@ function verDetalle(id: number) {
               <p>Estado actual de trámites</p>
             </div>
           </header>
-          <ol class="deadline-list">
-            <li class="urgent">
-              <span class="deadline-dot" aria-hidden="true"></span>
-              <div class="critical-box">
-                <div class="deadline-heading">
-                  <h3>Subsanación de Plan</h3>
-                  <span>Vence en 2 días</span>
-                </div>
-                <p>Requiere subir documento corregido antes del 28 Oct.</p>
-                <RouterLink :to="{ name: 'observaciones' }">Ir a trámite →</RouterLink>
-              </div>
-            </li>
-            <li class="warning">
-              <span class="deadline-dot" aria-hidden="true"></span>
-              <div>
-                <div class="deadline-heading">
-                  <h3>Aprobación de Asesor</h3>
-                  <span>En proceso</span>
-                </div>
-                <p>El asesor tiene plazo hasta el 05 Nov para emitir su informe.</p>
-              </div>
-            </li>
-            <li class="success completed">
-              <span class="deadline-dot" aria-hidden="true"></span>
-              <div>
-                <div class="deadline-heading">
-                  <h3>Designación de Jurado</h3>
-                  <span
-                    ><span class="material-symbols-outlined" aria-hidden="true">check_circle</span
-                    >Completado</span
-                  >
-                </div>
-                <p>Resolución N° 145-2024 emitida a tiempo.</p>
-              </div>
-            </li>
-          </ol>
-          <div class="deadline-legend">
-            <span><i class="urgent" aria-hidden="true"></i>Vencido / Crítico</span
-            ><span><i class="warning" aria-hidden="true"></i>En plazo regular</span
-            ><span><i class="success" aria-hidden="true"></i>Dentro de tiempo óptimo</span>
-          </div>
-        </section>
-        <section class="help-card">
-          <span class="material-symbols-outlined" aria-hidden="true">support_agent</span>
-          <div>
-            <h2>¿Problemas con un plazo?</h2>
-            <p>Si necesitas una extensión justificada, comunícate con la unidad de posgrado.</p>
-            <button disabled title="Mesa de ayuda pendiente de implementación">
-              Mesa de ayuda
-            </button>
+          <div class="deadline-list">
+            <p>{{ resumen?.detalle?.etapa_actual?.nombre || 'Sin expediente registrado' }}</p>
+            <p>{{ resumen?.detalle?.estado_actual?.nombre }}</p>
+            <div v-for="plazo in plazosAbiertos" :key="plazo.id" class="deadline-entry">
+              <strong>{{ plazo.nombre }}</strong>
+              <p>{{ textoPlazo(plazo) }}</p>
+              <p>Vence: {{ fechaPlazo(plazo.vencimiento) }}</p>
+            </div>
+            <p v-if="!plazosAbiertos.length && !cargando">No hay plazos abiertos con inicio registrado.</p>
+            <RouterLink :to="{ name: 'agenda' }">Consultar agenda académica</RouterLink>
           </div>
         </section>
       </aside>
     </div>
-    <p class="reference-notice">
-      Vista de referencia: avisos y fechas de ejemplo. Pendiente de conexión con las notificaciones
-      y plazos reales.
-    </p>
   </section>
 </template>
 
 <style scoped>
+.deadline-entry { margin: 12px 0; padding-top: 12px; border-top: 1px solid #e4e6ef; }
 .notifications-view {
   max-width: 1280px;
   margin: 0 auto;
@@ -440,10 +378,18 @@ h1 {
 }
 .load-more {
   display: flex;
-  justify-content: center;
-  margin-top: 40px;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+  color: #757681;
+  font-size: 12px;
 }
 .load-more button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   padding: 10px 24px;
   background: #e7e8ee;
   color: #283a70;
@@ -451,6 +397,17 @@ h1 {
   border-radius: 4px;
   font-size: 12px;
   line-height: 16px;
+  cursor: pointer;
+}
+.load-more button:hover {
+  background: #dce1ff;
+}
+.load-more button:focus-visible {
+  outline: 2px solid #4962a0;
+  outline-offset: 3px;
+}
+.load-more .material-symbols-outlined {
+  font-size: 18px;
 }
 .sidebar-panels {
   display: grid;
@@ -643,12 +600,6 @@ h3 {
   font-size: 12px;
   line-height: 16px;
   text-decoration: underline;
-}
-.reference-notice {
-  margin-top: 24px;
-  font-size: 11px;
-  line-height: 16px;
-  color: #757681;
 }
 .empty {
   padding: 24px;
