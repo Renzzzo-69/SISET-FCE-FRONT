@@ -1,57 +1,29 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import api from '@/services/api'
 
+type Formato = {
+  id: number
+  nombre: string
+  descripcion: string | null
+  version: string
+  nombre_original: string
+  tipo_archivo: 'doc' | 'docx'
+  categoria: string
+  actualizado_en: string | null
+  descarga: string
+}
+const formatos = ref<Formato[]>([])
 const busqueda = ref('')
 const categoria = ref('Todos')
-const categorias = ['Todos', 'Inscripción', 'Proyectos', 'Sustentación']
-// Datos visuales de Formatos_Oficiales.html. Las descargas requieren los archivos oficiales.
-const formatos = [
-  {
-    nombre: 'Solicitud de inscripción',
-    categoria: 'Inscripción',
-    version: 'v3.0',
-    fecha: '15/03/2024',
-    icono: 'description',
-    tono: 'green',
-    bloqueado: false,
-  },
-  {
-    nombre: 'Plantilla de proyecto',
-    categoria: 'Proyectos',
-    version: 'v1.2',
-    fecha: '10/01/2024',
-    icono: 'article',
-    tono: 'blue',
-    bloqueado: false,
-  },
-  {
-    nombre: 'Informe final',
-    categoria: 'Sustentación',
-    version: 'v4.0',
-    fecha: '05/11/2023',
-    icono: 'assignment',
-    tono: 'gold',
-    bloqueado: false,
-  },
-  {
-    nombre: 'Levantamiento observaciones',
-    categoria: 'Proyectos',
-    version: 'v2.1',
-    fecha: '20/08/2023',
-    icono: 'fact_check',
-    tono: 'red',
-    bloqueado: false,
-  },
-  {
-    nombre: 'Formato de Exoneración',
-    categoria: '',
-    version: '',
-    fecha: '',
-    icono: 'lock',
-    tono: '',
-    bloqueado: true,
-  },
-]
+const cargando = ref(true)
+const error = ref('')
+const errorDescarga = ref('')
+const descargando = ref<number | null>(null)
+const categorias = computed(() => [
+  'Todos',
+  ...new Set(formatos.value.map((item) => item.categoria)),
+])
 function normalizar(texto: string) {
   return texto
     .normalize('NFD')
@@ -60,39 +32,80 @@ function normalizar(texto: string) {
     .trim()
 }
 const visibles = computed(() =>
-  formatos.filter(
+  formatos.value.filter(
     (formato) =>
       (categoria.value === 'Todos' || formato.categoria === categoria.value) &&
-      normalizar(`${formato.nombre} ${formato.categoria} ${formato.version}`).includes(
-        normalizar(busqueda.value),
-      ),
+      normalizar(
+        `${formato.nombre} ${formato.nombre_original} ${formato.descripcion ?? ''} ${formato.version}`,
+      ).includes(normalizar(busqueda.value)),
   ),
 )
 function limpiar() {
   busqueda.value = ''
   categoria.value = 'Todos'
 }
+function fecha(valor: string | null) {
+  if (!valor) return 'No disponible'
+  const dia = new Date(valor)
+  return Number.isNaN(dia.getTime()) ? 'No disponible' : dia.toLocaleDateString('es-PE')
+}
+async function cargar() {
+  cargando.value = true
+  error.value = ''
+  try {
+    const { data } = await api.get<{ formatos: Formato[] }>('/formatos-oficiales')
+    formatos.value = data.formatos
+    if (!categorias.value.includes(categoria.value)) categoria.value = 'Todos'
+  } catch {
+    error.value = 'No se pudieron cargar los formatos publicados. Intenta nuevamente.'
+  } finally {
+    cargando.value = false
+  }
+}
+async function descargar(formato: Formato) {
+  if (descargando.value !== null) return
+  descargando.value = formato.id
+  errorDescarga.value = ''
+  try {
+    const { data } = await api.get<Blob>(`/formatos-oficiales/${formato.id}/descargar`, {
+      responseType: 'blob',
+    })
+    const url = URL.createObjectURL(data)
+    const enlace = document.createElement('a')
+    enlace.href = url
+    enlace.download = formato.nombre_original
+    document.body.append(enlace)
+    enlace.click()
+    enlace.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+  } catch {
+    errorDescarga.value = `No se pudo descargar «${formato.nombre}». Intenta nuevamente.`
+  } finally {
+    descargando.value = null
+  }
+}
+onMounted(cargar)
 </script>
 
 <template>
-  <section class="formatos-view" aria-labelledby="formatos-title">
+  <section class="formatos-view" aria-labelledby="formatos-title" :aria-busy="cargando">
     <header class="page-heading">
       <h1 id="formatos-title">Formatos Oficiales</h1>
       <p>
-        Directorio oficial de plantillas, solicitudes y documentos normativos requeridos para la
-        gestión de proyectos de tesis y graduación. Asegúrese de utilizar la versión vigente
-        detallada en cada tarjeta.
+        Descargue en Word las plantillas oficiales publicadas por Decanatura para la gestión de su
+        expediente.
       </p>
     </header>
     <div class="toolbar">
-      <label class="search"
-        ><span class="material-symbols-outlined" aria-hidden="true">search</span
-        ><span class="sr-only">Buscar formato por nombre o versión</span
-        ><input
+      <label class="search">
+        <span class="material-symbols-outlined" aria-hidden="true">search</span>
+        <span class="sr-only">Buscar formato por nombre o versión</span>
+        <input
           v-model="busqueda"
           type="search"
           placeholder="Buscar formato por nombre o versión..."
-      /></label>
+        />
+      </label>
       <div class="categories" role="group" aria-label="Categoría de formato">
         <button
           v-for="item in categorias"
@@ -105,83 +118,83 @@ function limpiar() {
         </button>
       </div>
     </div>
-    <span class="sr-only" role="status">{{ visibles.length }} formatos encontrados.</span>
-    <div class="formats-grid">
-      <article
-        v-for="formato in visibles"
-        :key="formato.nombre"
-        class="format-card"
-        :class="{ locked: formato.bloqueado }"
-      >
-        <template v-if="formato.bloqueado"
-          ><span class="locked-icon material-symbols-outlined" aria-hidden="true">lock</span>
-          <div>
-            <h2>{{ formato.nombre }}</h2>
-            <p>Este documento se encuentra en revisión normativa.</p>
-          </div>
-          <span class="unavailable"
-            ><span class="material-symbols-outlined" aria-hidden="true">block</span>No disponible
-            temporalmente</span
-          ></template
-        >
-        <template v-else>
+    <div v-if="cargando" class="empty" role="status">Cargando formatos oficiales…</div>
+    <div v-else-if="error" class="empty" role="alert">
+      <p>{{ error }}</p>
+      <button @click="cargar">Reintentar</button>
+    </div>
+    <template v-else>
+      <span class="sr-only" role="status">{{ visibles.length }} formatos encontrados.</span>
+      <p v-if="errorDescarga" class="download-error" role="alert">{{ errorDescarga }}</p>
+      <div class="formats-grid">
+        <article v-for="formato in visibles" :key="formato.id" class="format-card">
           <header class="card-heading">
-            <span
-              class="format-icon material-symbols-outlined"
-              :class="formato.tono"
-              aria-hidden="true"
-              >{{ formato.icono }}</span
+            <span class="format-icon material-symbols-outlined blue" aria-hidden="true"
+              >description</span
             >
             <div>
               <span class="category">{{ formato.categoria }}</span>
               <h2>{{ formato.nombre }}</h2>
             </div>
           </header>
+          <p v-if="formato.descripcion" class="description">{{ formato.descripcion }}</p>
           <dl class="metadata">
             <div>
-              <dt>Versión vigente</dt>
+              <dt>Versión publicada</dt>
               <dd class="version">{{ formato.version }}</dd>
             </div>
             <div>
-              <dt>Fecha vigencia</dt>
-              <dd>{{ formato.fecha }}</dd>
+              <dt>Actualizado</dt>
+              <dd>{{ fecha(formato.actualizado_en) }}</dd>
             </div>
           </dl>
+          <p class="file-name">{{ formato.nombre_original }}</p>
           <div class="downloads">
             <button
-              disabled
-              :aria-label="`Word de ${formato.nombre}: archivo pendiente de publicación`"
-              title="Archivo oficial pendiente de publicación"
-              aria-describedby="formatos-notice"
+              :disabled="descargando !== null"
+              :aria-label="`Descargar ${formato.nombre_original}`"
+              @click="descargar(formato)"
             >
-              <span class="material-symbols-outlined" aria-hidden="true">description</span
-              >Word</button
-            ><button
-              class="pdf"
-              disabled
-              :aria-label="`PDF de ${formato.nombre}: archivo pendiente de publicación`"
-              title="Archivo oficial pendiente de publicación"
-              aria-describedby="formatos-notice"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">picture_as_pdf</span>PDF
+              <span class="material-symbols-outlined" aria-hidden="true">download</span>
+              {{ descargando === formato.id ? 'Descargando…' : 'Descargar Word' }}
             </button>
           </div>
-        </template>
-      </article>
-    </div>
-    <div v-if="!visibles.length" class="empty">
-      <span class="material-symbols-outlined" aria-hidden="true">search_off</span>
-      <p>No se encontraron formatos con estos filtros.</p>
-      <button @click="limpiar">Limpiar filtros</button>
-    </div>
-    <p id="formatos-notice" class="catalog-notice">
-      Catálogo de referencia. Las versiones y fechas están pendientes de validación; las descargas
-      se habilitarán cuando se publiquen los archivos oficiales.
-    </p>
+        </article>
+      </div>
+      <div v-if="!visibles.length" class="empty">
+        <span class="material-symbols-outlined" aria-hidden="true">search_off</span>
+        <p>
+          {{
+            formatos.length
+              ? 'No se encontraron formatos con estos filtros.'
+              : 'Decanatura aún no ha publicado formatos Word disponibles.'
+          }}
+        </p>
+        <button v-if="formatos.length" @click="limpiar">Limpiar filtros</button>
+      </div>
+    </template>
   </section>
 </template>
 
 <style scoped>
+.file-name,
+.description {
+  overflow-wrap: anywhere;
+  color: #45464f;
+  font-size: 12px;
+}
+.download-error {
+  margin-bottom: 16px;
+  color: #ba1a1a;
+}
+button:not(:disabled) {
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .formatos-view {
   max-width: 1280px;
   margin: 0 auto;
@@ -295,25 +308,10 @@ h1 {
   border: 1px solid;
   border-radius: 4px;
 }
-.green {
-  background: #6ff5dc33;
-  color: #006b5c;
-  border-color: #6ff5dc80;
-}
 .blue {
   background: #dce1ff4d;
   color: #283a70;
   border-color: #dce1ff;
-}
-.gold {
-  background: #ffdf9b4d;
-  color: #4e3a00;
-  border-color: #e8c26d;
-}
-.red {
-  background: #ffdad64d;
-  color: #ba1a1a;
-  border-color: #ffdad6;
 }
 .category {
   display: inline-block;
@@ -381,67 +379,8 @@ h2 {
   font-size: 12px;
   line-height: 16px;
 }
-.downloads button.pdf {
-  background: #283a70;
-  color: white;
-  border-color: #283a70;
-}
 .downloads .material-symbols-outlined {
   font-size: 18px;
-}
-.format-card.locked {
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  min-height: 280px;
-  text-align: center;
-  background: #ededf3;
-  border: 1px dashed #c5c6d1;
-  box-shadow: none;
-  opacity: 0.8;
-}
-.locked-icon {
-  display: grid;
-  place-items: center;
-  width: 64px;
-  height: 64px;
-  border-radius: 12px;
-  background: #e2e2e8;
-  color: #757681;
-  font-size: 32px;
-  margin-bottom: 8px;
-}
-.locked h2 {
-  color: #45464f;
-  margin: 0 0 4px;
-}
-.locked p {
-  max-width: 200px;
-  margin: 0 auto;
-  color: #757681;
-  font-size: 11px;
-  line-height: 14px;
-}
-.unavailable {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  margin-top: 8px;
-  background: #e2e2e8;
-  border-radius: 4px;
-  color: #45464f;
-  font-size: 12px;
-  line-height: 16px;
-}
-.unavailable .material-symbols-outlined {
-  font-size: 16px;
-}
-.catalog-notice {
-  color: #757681;
-  font-size: 12px;
-  line-height: 18px;
-  margin-top: 24px;
 }
 .empty {
   display: grid;

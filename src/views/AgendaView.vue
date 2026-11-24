@@ -1,59 +1,63 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import axios from 'axios'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import {
+  consultarAgenda,
+  eventosAgenda,
+  fechaLima,
+  type AgendaTesista,
+} from '@/services/agendaTesista'
 
-// Eventos de la plantilla de referencia, pendientes de conexión con la agenda real.
-const eventos = [
-  {
-    id: 1,
-    titulo: 'Reunión de jurado',
-    tipo: 'Evaluación',
-    estado: 'Próximo',
-    fecha: '2024-10-24',
-    hora: '10:00 AM - 11:30 AM',
-    modalidad: 'Virtual',
-    lugar: 'Google Meet (enlace pendiente)',
-    icono: 'groups',
-    ubicacion: 'location_on',
-    tono: 'evaluation',
-  },
-  {
-    id: 2,
-    titulo: 'Límite de subsanación',
-    tipo: 'Trámite',
-    estado: 'Crítico',
-    fecha: '2024-10-28',
-    hora: '11:59 PM',
-    modalidad: 'Documental',
-    lugar: 'Subida en SISET',
-    icono: 'assignment_late',
-    ubicacion: 'upload_file',
-    tono: 'critical',
-  },
-  {
-    id: 3,
-    titulo: 'Sustentación (Tesis Final)',
-    tipo: 'Hito final',
-    estado: 'Programado',
-    fecha: '2024-11-15',
-    hora: '09:00 AM - 11:00 AM',
-    modalidad: 'Presencial',
-    lugar: 'Auditorio Principal FCE',
-    icono: 'school',
-    ubicacion: 'apartment',
-    tono: 'final',
-  },
-]
-const mes = ref(new Date(2024, 9, 1))
+const route = useRoute()
+const router = useRouter()
+const agenda = ref<AgendaTesista | null>(null)
+const cargando = ref(true)
+const error = ref('')
+const hoy = ref(fechaLima(new Date()))
+const mes = ref(new Date(hoy.value.slice(0, 7) + '-01T12:00:00'))
 const fechaSeleccionada = ref('')
 const tipo = ref('')
+const alcance = ref('todos')
 const filtrosAbiertos = ref(false)
 const diasSemana = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
-function claveFecha(fecha: Date) {
-  return `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`
-}
+const eventos = computed(() => eventosAgenda(agenda.value?.plazos ?? []))
+const misPendientes = computed(() => eventos.value.filter((e) => e.esPersonal))
+const proximaAccion = computed(() => misPendientes.value[0])
+const filtrados = computed(() =>
+  eventos.value.filter(
+    (e) =>
+      (!tipo.value || e.tipo === tipo.value) &&
+      (alcance.value === 'todos' || (alcance.value === 'mios' ? e.esPersonal : !e.esPersonal)),
+  ),
+)
+const visibles = computed(() =>
+  filtrados.value.filter((e) => !fechaSeleccionada.value || e.fecha === fechaSeleccionada.value),
+)
+const hayFiltros = computed(
+  () => !!fechaSeleccionada.value || !!tipo.value || alcance.value !== 'todos',
+)
+const horaConsulta = computed(() =>
+  agenda.value
+    ? new Intl.DateTimeFormat('es-PE', {
+        timeZone: 'America/Lima',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(agenda.value.actualizado_en))
+    : '',
+)
 const tituloMes = computed(() =>
   new Intl.DateTimeFormat('es-PE', { month: 'long', year: 'numeric' }).format(mes.value),
 )
+function claveFecha(fecha: Date) {
+  return (
+    fecha.getFullYear() +
+    '-' +
+    String(fecha.getMonth() + 1).padStart(2, '0') +
+    '-' +
+    String(fecha.getDate()).padStart(2, '0')
+  )
+}
 const dias = computed(() => {
   const anio = mes.value.getFullYear()
   const numeroMes = mes.value.getMonth()
@@ -62,23 +66,25 @@ const dias = computed(() => {
   return Array.from({ length: total }, (_, indice) => {
     const fecha = new Date(anio, numeroMes, indice - inicio + 1)
     const clave = claveFecha(fecha)
+    const eventosDelDia = filtrados.value.filter((e) => e.fecha === clave)
     return {
       clave,
       numero: fecha.getDate(),
       fuera: fecha.getMonth() !== numeroMes,
-      evento: eventos.find((evento) => evento.fecha === clave),
+      evento:
+        eventosDelDia.find((e) => e.vencido) ??
+        eventosDelDia.find((e) => e.esPersonal) ??
+        eventosDelDia[0],
+      total: eventosDelDia.length,
     }
   })
 })
-const visibles = computed(() =>
-  eventos.filter(
-    (evento) =>
-      (!tipo.value || evento.tipo === tipo.value) &&
-      (!fechaSeleccionada.value || evento.fecha === fechaSeleccionada.value),
-  ),
-)
 function cambiarMes(paso: number) {
   mes.value = new Date(mes.value.getFullYear(), mes.value.getMonth() + paso, 1)
+  fechaSeleccionada.value = ''
+}
+function irHoy() {
+  mes.value = new Date(hoy.value.slice(0, 7) + '-01T12:00:00')
   fechaSeleccionada.value = ''
 }
 function fechaTexto(clave: string) {
@@ -87,46 +93,155 @@ function fechaTexto(clave: string) {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(`${clave}T12:00:00`))
+  }).format(new Date(clave + 'T12:00:00'))
 }
 function limpiar() {
   tipo.value = ''
+  alcance.value = 'todos'
   fechaSeleccionada.value = ''
 }
+function destinoEvento(esPersonal: boolean) {
+  return esPersonal
+    ? {
+        name: 'observaciones',
+        query: {
+          expediente: agenda.value?.expediente?.id,
+          etapa: agenda.value?.expediente?.etapa_codigo?.includes('tesis') ? 'tesis' : 'proyecto',
+        },
+      }
+    : { name: 'expedientes-detalle', params: { id: agenda.value?.expediente?.id }, hash: '#plazos' }
+}
+let temporizador: ReturnType<typeof setTimeout> | undefined
+let peticion: AbortController | null = null
+let desmontado = false
+let calendarioSituado = false
+let fallos = 0
+async function cargar(forzar = false) {
+  if (desmontado || (peticion && !forzar)) return
+  if (temporizador) clearTimeout(temporizador)
+  peticion?.abort()
+  const actual = new AbortController()
+  peticion = actual
+  cargando.value = true
+  try {
+    const datos = await consultarAgenda(Number(route.query.expediente) || null, actual.signal)
+    if (desmontado || actual.signal.aborted) return
+    agenda.value = datos
+    hoy.value = fechaLima(new Date(datos.actualizado_en))
+    error.value = ''
+    fallos = 0
+    if (!calendarioSituado) {
+      const proximos = eventosAgenda(datos.plazos)
+      const siguiente =
+        proximos.find((e) => e.esPersonal && !e.vencido) ??
+        proximos.find((e) => !e.vencido) ??
+        proximos[0]
+      mes.value = new Date((siguiente?.fecha ?? hoy.value).slice(0, 7) + '-01T12:00:00')
+      calendarioSituado = true
+    }
+  } catch (e) {
+    if (!actual.signal.aborted && !desmontado) {
+      fallos++
+      error.value =
+        axios.isAxiosError(e) && [403, 404, 422].includes(e.response?.status ?? 0)
+          ? (e.response?.data?.message ?? 'No se pudo acceder a la agenda del expediente.')
+          : agenda.value
+            ? 'No se pudo consultar la última actualización. Se muestran los datos de la consulta anterior y se reintentará automáticamente.'
+            : 'No pudimos consultar tu agenda. Reintentaremos automáticamente al recuperar la conexión.'
+    }
+  } finally {
+    if (peticion === actual && !desmontado) {
+      cargando.value = false
+      peticion = null
+      if (document.visibilityState !== 'hidden')
+        temporizador = setTimeout(
+          () => {
+            void cargar()
+          },
+          fallos ? Math.min(60000, 5000 * 2 ** Math.min(fallos - 1, 4)) : 60000,
+        )
+    }
+  }
+}
+function alVolver() {
+  if (document.visibilityState !== 'hidden') void cargar()
+  else if (temporizador) clearTimeout(temporizador)
+}
+function seleccionarExpediente(evento: Event) {
+  void router.replace({
+    query: { ...route.query, expediente: Number((evento.target as HTMLSelectElement).value) },
+  })
+}
+watch(
+  () => route.query.expediente,
+  () => {
+    calendarioSituado = false
+    agenda.value = null
+    limpiar()
+    void cargar(true)
+  },
+)
+onMounted(() => {
+  void cargar()
+  window.addEventListener('focus', alVolver)
+  window.addEventListener('online', alVolver)
+  document.addEventListener('visibilitychange', alVolver)
+})
+onUnmounted(() => {
+  desmontado = true
+  peticion?.abort()
+  if (temporizador) clearTimeout(temporizador)
+  window.removeEventListener('focus', alVolver)
+  window.removeEventListener('online', alVolver)
+  document.removeEventListener('visibilitychange', alVolver)
+})
 </script>
 
 <template>
-  <section class="agenda-view" aria-labelledby="agenda-title">
+  <section class="agenda-view" aria-labelledby="agenda-title" :aria-busy="cargando && !agenda">
     <header class="page-heading">
       <div>
         <h1 id="agenda-title">Agenda Académica</h1>
-        <p>Consulta y seguimiento de tus eventos del proceso de titulación.</p>
+        <p>Tus fechas límite y el seguimiento de cada proceso de tesis.</p>
       </div>
-      <div class="header-actions">
-        <button
-          class="button"
-          :aria-expanded="filtrosAbiertos"
-          aria-controls="agenda-filtros"
-          @click="filtrosAbiertos = !filtrosAbiertos"
-        >
-          <span class="material-symbols-outlined" aria-hidden="true">filter_list</span
-          >Filtrar</button
-        ><button
-          class="button primary"
-          disabled
-          title="Sincronización pendiente de conexión con la agenda real"
-        >
-          <span class="material-symbols-outlined" aria-hidden="true">calendar_add_on</span
-          >Sincronizar Calendario
-        </button>
-      </div>
+      <button
+        class="button"
+        :aria-expanded="filtrosAbiertos"
+        aria-controls="agenda-filtros"
+        @click="filtrosAbiertos = !filtrosAbiertos"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">filter_list</span>Filtrar
+      </button>
     </header>
-    <p class="reference-notice">
-      Agenda de ejemplo de la plantilla (octubre–noviembre de 2024). Estos eventos no representan tu
-      programación real.
-    </p>
+    <div class="automatic-notice">
+      <span class="material-symbols-outlined" aria-hidden="true">event_repeat</span>
+      <p>
+        Tu agenda se actualiza automáticamente con los plazos de cada proceso. Las fechas se generan
+        desde su inicio real.
+      </p>
+      <small v-if="agenda">{{
+        cargando ? 'Consultando…' : 'Última consulta: ' + horaConsulta
+      }}</small>
+    </div>
+    <p v-if="error" class="connection-error" role="alert">{{ error }}</p>
+    <div v-if="agenda?.expediente" class="expediente-context">
+      <span
+        ><strong>{{ agenda.expediente.codigo }}</strong> · {{ agenda.expediente.etapa }} ·
+        {{ agenda.expediente.estado }}</span
+      ><label v-if="agenda.expedientes.length > 1"
+        >Expediente<select :value="agenda.expediente.id" @change="seleccionarExpediente">
+          <option v-for="e in agenda.expedientes" :key="e.id" :value="e.id">{{ e.codigo }}</option>
+        </select></label
+      >
+    </div>
     <div v-if="filtrosAbiertos" id="agenda-filtros" class="card filters">
       <label
+        >Responsabilidad<select v-model="alcance">
+          <option value="todos">Todos los procesos</option>
+          <option value="mios">Mis pendientes</option>
+          <option value="seguimiento">Seguimiento de otras áreas</option>
+        </select></label
+      ><label
         >Tipo de evento<select v-model="tipo">
           <option value="">Todos</option>
           <option>Evaluación</option>
@@ -138,7 +253,7 @@ function limpiar() {
     </div>
     <div class="agenda-grid">
       <aside class="calendar-column">
-        <section class="card calendar" aria-label="Calendario de eventos">
+        <section class="card calendar" aria-label="Calendario de vencimientos">
           <header>
             <h2 aria-live="polite">{{ tituloMes }}</h2>
             <div class="month-controls">
@@ -163,77 +278,168 @@ function limpiar() {
                 {
                   outside: dia.fuera,
                   selected: fechaSeleccionada === dia.clave,
-                  reference: !fechaSeleccionada && dia.clave === '2024-10-24',
+                  reference: !fechaSeleccionada && dia.clave === hoy,
                 },
               ]"
-              :aria-label="`${fechaTexto(dia.clave)}${dia.evento ? `: ${dia.evento.titulo}` : ''}`"
+              :aria-label="
+                fechaTexto(dia.clave) + (dia.total ? ': ' + dia.total + ' vencimientos' : '')
+              "
+              :aria-current="dia.clave === hoy ? 'date' : undefined"
               :aria-pressed="fechaSeleccionada === dia.clave"
               @click="fechaSeleccionada = fechaSeleccionada === dia.clave ? '' : dia.clave"
             >
               {{ dia.numero }}<span v-if="dia.evento" class="event-dot" aria-hidden="true"></span>
             </button>
           </div>
+          <div class="calendar-legend">
+            <span><i class="legend-personal"></i>Tu acción</span
+            ><span><i class="legend-followup"></i>Seguimiento</span
+            ><button @click="irHoy">Hoy</button>
+          </div>
         </section>
-        <section class="card event-count" aria-label="Resumen de eventos de ejemplo">
+        <section class="card event-count" aria-label="Procesos abiertos con plazo">
           <div>
-            <p>Eventos restantes</p>
-            <strong>{{ visibles.length }}</strong>
+            <p>Procesos con plazo</p>
+            <strong>{{ agenda ? eventos.length : '—' }}</strong>
           </div>
           <span class="material-symbols-outlined" aria-hidden="true">event_available</span>
+        </section>
+        <section class="card personal-summary">
+          <div class="personal-heading">
+            <span class="material-symbols-outlined" aria-hidden="true">assignment_ind</span>
+            <h2>Mis pendientes</h2>
+            <strong>{{ agenda ? misPendientes.length : '—' }}</strong>
+          </div>
+          <template v-if="proximaAccion"
+            ><p>
+              <strong>{{
+                proximaAccion.vencido ? 'Tienes un plazo vencido' : 'Tu próxima acción'
+              }}</strong>
+            </p>
+            <p>{{ proximaAccion.titulo }}</p>
+            <small>{{ fechaTexto(proximaAccion.fecha) }} · 23:59</small
+            ><RouterLink class="personal-link" :to="destinoEvento(true)"
+              >Revisar observaciones<span class="material-symbols-outlined" aria-hidden="true"
+                >arrow_forward</span
+              ></RouterLink
+            ></template
+          >
+          <p v-else-if="agenda">
+            Tus plazos para subsanar aparecerán aquí cuando se comuniquen observaciones.
+          </p>
+          <p v-else>Consultando tus fechas límite…</p>
         </section>
       </aside>
       <section class="card upcoming" aria-labelledby="events-title">
         <header>
-          <h2 id="events-title">Próximos Eventos</h2>
-          <button v-if="fechaSeleccionada || tipo" class="clear-filter" @click="limpiar">
-            Ver todos
-          </button>
+          <h2 id="events-title">
+            {{ fechaSeleccionada ? fechaTexto(fechaSeleccionada) : 'Plazos del expediente' }}
+          </h2>
+          <button v-if="hayFiltros" class="clear-filter" @click="limpiar">Ver todos</button>
         </header>
-        <span class="sr-only" role="status">{{ visibles.length }} eventos encontrados.</span>
-        <ol v-if="visibles.length" class="timeline">
-          <li v-for="evento in visibles" :key="evento.id" :class="evento.tono">
-            <span class="event-node material-symbols-outlined" aria-hidden="true">{{
-              evento.icono
-            }}</span>
-            <article class="event-card">
-              <header>
-                <div>
-                  <span class="event-type">{{ evento.tipo }}</span>
-                  <h3>{{ evento.titulo }}</h3>
-                </div>
-                <span class="status">{{ evento.estado }}</span>
-              </header>
-              <div class="event-details">
-                <div>
-                  <span class="material-symbols-outlined" aria-hidden="true">event</span>
+        <div v-if="cargando && !agenda" class="empty loading" role="status">
+          <span class="material-symbols-outlined" aria-hidden="true">hourglass_top</span>
+          <p>Estamos consultando las fechas de tu expediente…</p>
+        </div>
+        <div v-else-if="!agenda" class="empty">
+          <span class="material-symbols-outlined" aria-hidden="true">cloud_off</span>
+          <p>Tu agenda estará disponible cuando se complete la consulta.</p>
+        </div>
+        <div v-else-if="!agenda.expediente" class="empty">
+          <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
+          <h3>Aún no tienes un expediente registrado</h3>
+          <p>Al iniciar tu trámite, las fechas de sus procesos aparecerán automáticamente.</p>
+          <RouterLink class="button primary" :to="{ name: 'expedientes-nuevo' }"
+            >Registrar expediente</RouterLink
+          >
+        </div>
+        <template v-else-if="visibles.length">
+          <span class="sr-only" role="status">{{ visibles.length }} procesos con plazo.</span>
+          <ol class="timeline">
+            <li v-for="evento in visibles" :key="evento.id" :class="evento.tono">
+              <span class="event-node material-symbols-outlined" aria-hidden="true">{{
+                evento.esPersonal ? 'edit_document' : 'timer'
+              }}</span>
+              <article class="event-card">
+                <header>
                   <div>
-                    <small>{{ evento.tipo === 'Trámite' ? 'Fecha Límite' : 'Fecha y Hora' }}</small
-                    ><time :datetime="evento.fecha">{{ fechaTexto(evento.fecha) }}</time>
-                    <p>{{ evento.hora }}</p>
+                    <span class="event-type">{{
+                      evento.esPersonal ? 'Requiere tu acción' : evento.tipo + ' · En seguimiento'
+                    }}</span>
+                    <h3>{{ evento.titulo }}</h3>
+                  </div>
+                  <span class="status">{{ evento.estado }}</span>
+                </header>
+                <p class="remaining" :class="{ overdue: evento.vencido }">
+                  {{
+                    evento.vencido
+                      ? 'El plazo de este proceso ya venció.'
+                      : evento.restantes +
+                        ' días ' +
+                        (evento.tipoDias === 'habiles' ? 'hábiles' : 'calendario') +
+                        ' restantes'
+                  }}
+                </p>
+                <div class="event-details">
+                  <div>
+                    <span class="material-symbols-outlined" aria-hidden="true">event</span>
+                    <div>
+                      <small>Fecha límite</small
+                      ><time :datetime="evento.vencimiento">{{ fechaTexto(evento.fecha) }}</time>
+                      <p>Hasta las 23:59 · Hora de Lima</p>
+                    </div>
+                  </div>
+                  <div>
+                    <span class="material-symbols-outlined" aria-hidden="true">person</span>
+                    <div>
+                      <small>Responsable</small>
+                      <p>{{ evento.esPersonal ? 'Tú · Tesista' : evento.responsable }}</p>
+                      <p v-if="evento.participantes.length" class="participants">
+                        {{ evento.participantes.join(' · ') }}
+                      </p>
+                      <small
+                        >{{ evento.duracion }} días
+                        {{ evento.tipoDias === 'habiles' ? 'hábiles' : 'calendario' }}</small
+                      >
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <span class="material-symbols-outlined" aria-hidden="true">{{
-                    evento.ubicacion
-                  }}</span>
-                  <div>
-                    <small>{{
-                      evento.tipo === 'Trámite' ? 'Modalidad' : 'Modalidad y Lugar'
-                    }}</small>
-                    <p>{{ evento.modalidad }}</p>
-                    <p :class="{ 'meeting-link': evento.modalidad === 'Virtual' }">
-                      {{ evento.lugar }}
-                    </p>
-                  </div>
+                <div class="event-footer">
+                  <p>
+                    {{
+                      evento.esPersonal
+                        ? 'Presenta tu subsanación dentro del plazo establecido.'
+                        : evento.tipo === 'Hito final'
+                          ? 'La fecha límite no reemplaza la programación formal de la sustentación.'
+                          : 'Este plazo corresponde al responsable del proceso. Consulta su avance desde tu expediente.'
+                    }}
+                  </p>
+                  <RouterLink :to="destinoEvento(evento.esPersonal)"
+                    >{{ evento.esPersonal ? 'Revisar observaciones' : 'Ver seguimiento'
+                    }}<span class="material-symbols-outlined" aria-hidden="true"
+                      >arrow_forward</span
+                    ></RouterLink
+                  >
                 </div>
-              </div>
-            </article>
-          </li>
-        </ol>
+              </article>
+            </li>
+          </ol>
+        </template>
         <div v-else class="empty">
           <span class="material-symbols-outlined" aria-hidden="true">event_busy</span>
-          <p>No hay eventos para los filtros seleccionados.</p>
-          <button class="button" @click="limpiar">Ver todos los eventos</button>
+          <h3>
+            {{ hayFiltros ? 'Sin vencimientos para esta selección' : 'Sin vencimientos abiertos' }}
+          </h3>
+          <p>
+            {{
+              hayFiltros
+                ? 'Puedes consultar las demás fechas de tu expediente.'
+                : 'Tu expediente está en ' +
+                  agenda.expediente.etapa +
+                  '. El siguiente vencimiento aparecerá cuando se inicie un proceso con plazo establecido.'
+            }}
+          </p>
+          <button v-if="hayFiltros" class="button" @click="limpiar">Ver todos los plazos</button>
         </div>
       </section>
     </div>
@@ -617,6 +823,199 @@ h3 {
   }
   .timeline li {
     padding-left: 44px;
+  }
+}
+
+.automatic-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  margin-bottom: 16px;
+  border: 1px solid #d6d9e9;
+  border-radius: 8px;
+  background: #ededf8;
+  color: #44558d;
+}
+.automatic-notice p {
+  font-size: 12px;
+  line-height: 19px;
+  flex: 1;
+}
+.automatic-notice small {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.connection-error {
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 7px;
+  background: #fff1de;
+  color: #755200;
+  font-size: 12px;
+}
+.expediente-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  color: #606575;
+}
+.expediente-context strong {
+  color: #283a70;
+}
+.expediente-context label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.calendar-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e2e8;
+  color: #757681;
+  font-size: 10px;
+}
+.calendar-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.calendar-legend i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.legend-personal {
+  background: #006b5c;
+}
+.legend-followup {
+  background: #283a70;
+}
+.calendar-legend button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: #283a70;
+  font-size: 11px;
+  cursor: pointer;
+}
+.personal {
+  --event-color: #006b5c;
+  --event-background: #d8f8ec;
+}
+.warning {
+  --event-color: #936800;
+  --event-background: #ffdf9b;
+}
+.personal-summary {
+  padding: 18px 16px;
+  border-color: #b3d6cd;
+}
+.personal-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #006b5c;
+  margin-bottom: 12px;
+}
+.personal-heading h2 {
+  font-size: 14px;
+  flex: 1;
+}
+.personal-heading > strong {
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: #e5f4ef;
+}
+.personal-summary p {
+  font-size: 12px;
+  line-height: 20px;
+  color: #45464f;
+}
+.personal-summary small {
+  display: block;
+  font-size: 11px;
+  margin: 8px 0;
+  color: #606575;
+}
+.personal-link,
+.event-footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #283a70;
+  font-weight: 600;
+  font-size: 12px;
+  text-decoration: none;
+}
+.personal-link {
+  margin-top: 12px;
+}
+.personal-link span,
+.event-footer a span {
+  font-size: 16px;
+}
+.remaining {
+  margin-top: 14px;
+  color: #283a70;
+  font-size: 14px;
+  font-weight: 600;
+}
+.remaining.overdue {
+  color: #ba1a1a;
+}
+.participants {
+  font-size: 11px;
+  color: #606575;
+  margin: 4px 0;
+}
+.event-footer {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e2e8;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+.event-footer p {
+  flex: 1 1 200px;
+  color: #606575;
+  font-size: 11px;
+  line-height: 18px;
+}
+.empty p {
+  font-size: 13px;
+  line-height: 21px;
+  max-width: 450px;
+}
+.loading {
+  min-height: 240px;
+  align-content: center;
+}
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #4962a0;
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .automatic-notice {
+    flex-wrap: wrap;
+  }
+  .automatic-notice small {
+    margin-left: 34px;
+  }
+  .automatic-notice p {
+    flex-basis: calc(100% - 40px);
   }
 }
 </style>

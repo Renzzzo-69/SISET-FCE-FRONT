@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import axios from 'axios'
 
 import api from '@/services/api'
 import { useTheme } from '@/services/theme'
+import CalendarioInstitucional from '@/components/CalendarioInstitucional.vue'
 
 type Perfil = {
   correo_electronico: string
@@ -49,11 +51,9 @@ async function guardarCambios() {
     })
     celular.value = data.celular
     mensaje.value = data.message
-  } catch (err: any) {
+  } catch (err) {
     error.value =
-      err.response?.data?.message ??
-      err.response?.data?.errors?.celular?.[0] ??
-      'No se pudo actualizar el celular.'
+      (axios.isAxiosError(err) && (err.response?.data?.message ?? err.response?.data?.errors?.celular?.[0])) || 'No se pudo actualizar el celular.'
   } finally {
     guardando.value = false
   }
@@ -64,6 +64,7 @@ onMounted(cargarPerfil)
 
 <template>
   <div class="max-w-container-max-width mx-auto">
+    <CalendarioInstitucional />
     <div class="mb-8">
       <h2 class="font-headline-lg text-headline-lg text-primary">Configuración del Perfil</h2>
       <p class="text-on-surface-variant">

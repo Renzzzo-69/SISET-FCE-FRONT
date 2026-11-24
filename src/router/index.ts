@@ -1,45 +1,52 @@
 import { createRouter, createWebHistory } from 'vue-router'
-
-import AuthenticatedLayout from '@/layouts/AuthenticatedLayout.vue'
 import { useAuthStore } from '@/stores/auth'
-import CrearExpedienteView from '@/views/CrearExpedienteView.vue'
-import ExpedienteDetalleView from '@/views/ExpedienteDetalleView.vue'
-import ExpedientesView from '@/views/ExpedientesView.vue'
-import LoginView from '@/views/LoginView.vue'
-import PanelView from '@/views/PanelView.vue'
-import ObservacionesView from '@/views/ObservacionesView.vue'
-import TesisFinalView from '@/views/TesisFinalView.vue'
-import DocumentosView from '@/views/DocumentosView.vue'
-import FormatosView from '@/views/FormatosView.vue'
-import NotificacionesView from '@/views/NotificacionesView.vue'
-import PerfilView from '@/views/PerfilView.vue'
-import AgendaView from '@/views/AgendaView.vue'
-import AsesorJuradosView from '@/views/AsesorJuradosView.vue'
-import UdiExpedientesView from '@/views/UdiExpedientesView.vue'
-import UdiRevisionView from '@/views/UdiRevisionView.vue'
-import DecanaturaView from '@/views/DecanaturaView.vue'
-import DecanaturaLayout from '@/layouts/DecanaturaLayout.vue'
-import AsignacionJurados from '@/views/decanatura/AsignacionJurados.vue'
-import AsignacionIndividualJurados from '@/views/decanatura/AsignacionIndividualJurados.vue'
-import Documentos from '@/views/decanatura/Documentos.vue'
-import AgregarFormato from '@/views/decanatura/AgregarFormato.vue'
-import Notificaciones from '@/views/decanatura/Notificaciones.vue'
-import Resoluciones from '@/views/secretaria/Resoluciones.vue'
-import SecretariaSubirResolucion from '@/views/secretaria/SubirResolucion.vue'
-import CorregirResolucion from '@/views/secretaria/CorregirResolucion.vue'
-import DocenteLayout from '@/layouts/DocenteLayout.vue'
-import DocenteDashboard from '@/views/docente/DocenteDashboard.vue'
-import TesisRevision from '@/views/docente/jurado/TesisRevision.vue'
-import TesisAprobadas from '@/views/docente/jurado/TesisAprobadas.vue'
-import DetalleExpediente from '@/views/docente/jurado/DetalleExpediente.vue'
-import ProyectosRevision from '@/views/docente/jurado/ProyectosRevision.vue'
-import ProyectosAprobados from '@/views/docente/jurado/ProyectosAprobados.vue'
-import AsesorProyectosRevision from '@/views/docente/asesor/AsesorProyectosRevision.vue'
-import AsesorProyectosAprobados from '@/views/docente/asesor/AsesorProyectosAprobados.vue'
-import AsesorTesisRevision from '@/views/docente/asesor/AsesorTesisRevision.vue'
-import AsesorTesisAprobadas from '@/views/docente/asesor/AsesorTesisAprobadas.vue'
-import DocenteReportes from '@/views/docente/DocenteReportes.vue'
-import ConfiguracionView from '@/views/ConfiguracionView.vue'
+
+const AuthenticatedLayout = () => import('@/layouts/AuthenticatedLayout.vue')
+const CrearExpedienteView = () => import('@/views/CrearExpedienteView.vue')
+const ExpedienteDetalleView = () => import('@/views/ExpedienteDetalleView.vue')
+const ExpedientesView = () => import('@/views/ExpedientesView.vue')
+const LoginView = () => import('@/views/LoginView.vue')
+const PanelView = () => import('@/views/PanelView.vue')
+const ObservacionesView = () => import('@/views/ObservacionesView.vue')
+const TesisFinalView = () => import('@/views/TesisFinalView.vue')
+const DocumentosView = () => import('@/views/DocumentosView.vue')
+const FormatosView = () => import('@/views/FormatosView.vue')
+const NotificacionesView = () => import('@/views/NotificacionesView.vue')
+const PerfilView = () => import('@/views/PerfilView.vue')
+const AgendaView = () => import('@/views/AgendaView.vue')
+const AsesorJuradosView = () => import('@/views/AsesorJuradosView.vue')
+const UdiExpedientesView = () => import('@/views/UdiExpedientesView.vue')
+const UdiRevisionView = () => import('@/views/UdiRevisionView.vue')
+const UdiExpedienteView = () => import('@/views/UdiExpedienteView.vue')
+const UdiListosDerivarView = () => import('@/views/UdiListosDerivarView.vue')
+const UdiLineasView = () => import('@/views/UdiLineasView.vue')
+const UdiRequisitosView = () => import('@/views/UdiRequisitosView.vue')
+const UdiAlumnosView = () => import('@/views/UdiAlumnosView.vue')
+const UdiDocentesView = () => import('@/views/UdiDocentesView.vue')
+const DecanaturaView = () => import('@/views/DecanaturaView.vue')
+const DecanaturaLayout = () => import('@/layouts/DecanaturaLayout.vue')
+const AsignacionJurados = () => import('@/views/decanatura/AsignacionJurados.vue')
+const AsignacionIndividualJurados = () => import('@/views/decanatura/AsignacionIndividualJurados.vue')
+const Documentos = () => import('@/views/decanatura/Documentos.vue')
+const AgregarFormato = () => import('@/views/decanatura/AgregarFormato.vue')
+const Notificaciones = () => import('@/views/decanatura/Notificaciones.vue')
+const Resoluciones = () => import('@/views/secretaria/Resoluciones.vue')
+const SecretariaSubirResolucion = () => import('@/views/secretaria/SubirResolucion.vue')
+const CorregirResolucion = () => import('@/views/secretaria/CorregirResolucion.vue')
+const DocenteLayout = () => import('@/layouts/DocenteLayout.vue')
+const DocenteDashboard = () => import('@/views/docente/DocenteDashboard.vue')
+const TesisRevision = () => import('@/views/docente/jurado/TesisRevision.vue')
+const TesisAprobadas = () => import('@/views/docente/jurado/TesisAprobadas.vue')
+const DetalleExpediente = () => import('@/views/docente/jurado/DetalleExpediente.vue')
+const ProyectosRevision = () => import('@/views/docente/jurado/ProyectosRevision.vue')
+const ProyectosAprobados = () => import('@/views/docente/jurado/ProyectosAprobados.vue')
+const AsesorProyectosRevision = () => import('@/views/docente/asesor/AsesorProyectosRevision.vue')
+const AsesorProyectosAprobados = () => import('@/views/docente/asesor/AsesorProyectosAprobados.vue')
+const AsesorTesisRevision = () => import('@/views/docente/asesor/AsesorTesisRevision.vue')
+const AsesorTesisAprobadas = () => import('@/views/docente/asesor/AsesorTesisAprobadas.vue')
+const DocenteReportes = () => import('@/views/docente/DocenteReportes.vue')
+const ConfiguracionView = () => import('@/views/ConfiguracionView.vue')
+const CalendarioLaboralView = () => import('@/views/CalendarioLaboralView.vue')
 
 function rutaInicialPorRol(auth: ReturnType<typeof useAuthStore>) {
   if (auth.tieneRol('decanatura')) return { name: 'decanatura' }
@@ -62,6 +69,14 @@ const router = createRouter({
       component: AuthenticatedLayout,
       meta: { requiereAutenticacion: true },
       children: [
+        {
+          path: 'udi/mantenimiento/requisitos', name: 'udi-requisitos', component: UdiRequisitosView,
+          meta: { roles: ['udi', 'administrador'] },
+        },
+        {
+          path: 'calendario-laboral', name: 'calendario-laboral', component: CalendarioLaboralView,
+          meta: { roles: ['udi', 'administrador', 'decanatura'] },
+        },
         {
           path: '',
           redirect: { name: 'dashboard' },
@@ -127,14 +142,64 @@ const router = createRouter({
           component: ExpedienteDetalleView,
         },
         {
+          path: 'udi/mantenimiento/docentes',
+          name: 'udi-docentes',
+          component: UdiDocentesView,
+          meta: { roles: ['udi', 'administrador'] },
+        },
+        {
+          path: 'udi/mantenimiento/alumnos',
+          name: 'udi-alumnos',
+          component: UdiAlumnosView,
+          meta: { roles: ['udi', 'administrador'] },
+        },
+        {
+          path: 'udi/mantenimiento/lineas',
+          name: 'udi-lineas',
+          component: UdiLineasView,
+          meta: { roles: ['udi', 'administrador'] },
+        },
+        {
           path: 'udi/expedientes',
           name: 'udi-expedientes',
+          redirect: { name: 'udi-expedientes-por-revisar' },
+          meta: { roles: ['udi', 'administrador'] },
+        },
+        {
+          path: 'udi/expedientes/por-revisar',
+          name: 'udi-expedientes-por-revisar',
           component: UdiExpedientesView,
+          meta: { roles: ['udi', 'administrador'] },
+        },
+        {
+          path: 'udi/expedientes/revisados',
+          name: 'udi-expedientes-revisados',
+          component: UdiExpedientesView,
+          meta: { roles: ['udi', 'administrador'] },
+        },
+        {
+          path: 'udi/expedientes/:id(\\d+)',
+          name: 'udi-expediente',
+          component: UdiExpedienteView,
+          meta: { roles: ['udi', 'administrador'] },
         },
         {
           path: 'udi/expedientes/:id/revision',
           name: 'udi-revision',
           component: UdiRevisionView,
+          meta: { roles: ['udi', 'administrador'] },
+        },
+        {
+          path: 'udi/jurados',
+          name: 'udi-jurados',
+          component: UdiListosDerivarView,
+          meta: { roles: ['udi', 'administrador'] },
+        },
+        {
+          path: 'udi/jurados/:id(\\d+)',
+          name: 'udi-jurados-propuesta',
+          component: AsignacionIndividualJurados,
+          meta: { roles: ['udi', 'administrador'] },
         },
         { path: 'configuracion', name: 'configuracion', component: ConfiguracionView },
       ],
@@ -321,9 +386,8 @@ const router = createRouter({
     // Development-only preview route for Decanatura (no auth required)
     {
       path: '/decanatura-dev',
-      name: 'decanatura-dev',
       component: DecanaturaLayout,
-      children: [{ path: '', component: DecanaturaView }],
+      children: [{ path: '', name: 'decanatura-dev', component: DecanaturaView }],
     },
   ],
 })

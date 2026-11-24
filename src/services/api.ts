@@ -28,7 +28,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const tokenActual = localStorage.getItem(AUTH_TOKEN_KEY)
+    if (
+      error.response?.status === 401 &&
+      tokenActual &&
+      error.config?.headers?.Authorization === `Bearer ${tokenActual}`
+    ) {
       localStorage.removeItem(AUTH_TOKEN_KEY)
       onUnauthorized?.()
     }
@@ -42,7 +47,7 @@ export async function descargarDocumentoPrivado(ruta: string, nombre: string) {
   const url = new URL(ruta, baseApi.origin)
   url.searchParams.set('download', '1')
 
-  const { data } = await api.get<Blob>(url.toString(), { responseType: 'blob' })
+  const { data, headers } = await api.get<Blob>(url.toString(), { responseType: 'blob' })
   const urlTemporal = URL.createObjectURL(data)
   const enlace = document.createElement('a')
   const extension =
@@ -51,7 +56,10 @@ export async function descargarDocumentoPrivado(ruta: string, nombre: string) {
       : 'pdf'
 
   enlace.href = urlTemporal
-  enlace.download = `${nombre}.${extension}`
+  const disposition = String(headers['content-disposition'] ?? '')
+  const nombreServidor = disposition.match(/filename="([^"]+)"/i)?.[1]
+    ?? disposition.match(/filename=([^;\s]+)/i)?.[1]
+  enlace.download = nombreServidor ?? `${nombre}.${extension}`
   document.body.append(enlace)
   enlace.click()
   enlace.remove()

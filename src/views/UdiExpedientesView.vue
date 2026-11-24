@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import api from '@/services/api'
 import type { Expediente, ParticipanteExpediente } from '@/types/api'
+import UdiRevisionProgreso from '@/components/UdiRevisionProgreso.vue'
+import { progresoRevisionUdi } from '@/utils/udiExpedientes'
 
 const ETAPAS_FILTRO = [
   { codigo: 'registro_expediente_digital', etiqueta: 'Registro de expediente digital' },
@@ -12,7 +14,6 @@ const ETAPAS_FILTRO = [
 ]
 
 const ESTADOS_FILTRO = [
-  { codigo: 'pendiente_derivacion', etiqueta: 'Pendiente de derivación' },
   { codigo: 'derivado_udi', etiqueta: 'Derivado a UDI' },
   { codigo: 'en_revision', etiqueta: 'En revisión' },
   { codigo: 'observado', etiqueta: 'Observado' },
@@ -21,16 +22,25 @@ const ESTADOS_FILTRO = [
 ]
 
 const router = useRouter()
+const route = useRoute()
+const mostrandoRevisados = computed(() => route.name === 'udi-expedientes-revisados')
 const expedientes = ref<Expediente[]>([])
+const expedientesBandeja = computed(() =>
+  expedientes.value.filter(
+    (expediente) => progresoRevisionUdi(expediente).revisado === mostrandoRevisados.value,
+  ),
+)
 const filtros = ref({ codigo: '', etapa: '', estado: '' })
 const busquedaTesista = ref('')
 const cargando = ref(false)
 const mensajeError = ref('')
 
 const opcionesEtapa = computed(() => {
-  const opciones = new Map(ETAPAS_FILTRO.map((opcion) => [opcion.codigo, opcion]))
+  const opciones = new Map(
+    (mostrandoRevisados.value ? [] : ETAPAS_FILTRO).map((opcion) => [opcion.codigo, opcion]),
+  )
 
-  for (const expediente of expedientes.value) {
+  for (const expediente of expedientesBandeja.value) {
     const etapa = expediente.etapa
     if (etapa && !opciones.has(etapa.codigo)) {
       opciones.set(etapa.codigo, { codigo: etapa.codigo, etiqueta: etapa.nombre })
@@ -41,9 +51,11 @@ const opcionesEtapa = computed(() => {
 })
 
 const opcionesEstado = computed(() => {
-  const opciones = new Map(ESTADOS_FILTRO.map((opcion) => [opcion.codigo, opcion]))
+  const opciones = new Map(
+    (mostrandoRevisados.value ? [] : ESTADOS_FILTRO).map((opcion) => [opcion.codigo, opcion]),
+  )
 
-  for (const expediente of expedientes.value) {
+  for (const expediente of expedientesBandeja.value) {
     const estado = expediente.estado_actual
     if (estado && !opciones.has(estado.codigo)) {
       opciones.set(estado.codigo, { codigo: estado.codigo, etiqueta: estado.nombre })
@@ -56,9 +68,9 @@ const opcionesEstado = computed(() => {
 const expedientesFiltrados = computed(() => {
   const busqueda = normalizarTexto(busquedaTesista.value)
 
-  if (!busqueda) return expedientes.value
+  if (!busqueda) return expedientesBandeja.value
 
-  return expedientes.value.filter((expediente) =>
+  return expedientesBandeja.value.filter((expediente) =>
     [expediente.tesista, expediente.co_tesista]
       .filter((participante): participante is ParticipanteExpediente => participante !== null)
       .some((participante) => normalizarTexto(nombreParticipante(participante)).includes(busqueda)),
@@ -155,6 +167,7 @@ function limpiarFiltros() {
 }
 
 onMounted(cargarExpedientes)
+watch(() => route.name, limpiarFiltros)
 </script>
 
 <template>
@@ -162,14 +175,37 @@ onMounted(cargarExpedientes)
     <header class="inbox-heading">
       <div>
         <p class="eyebrow">Unidad de Investigación</p>
-        <h1 id="udi-inbox-title">Bandeja UDI</h1>
-        <p class="intro">Revise los expedientes disponibles y gestione su revisión documentaria.</p>
+        <h1 id="udi-inbox-title">
+          {{ mostrandoRevisados ? 'Expedientes revisados' : 'Expedientes por revisar' }}
+        </h1>
+        <p class="intro">
+          {{
+            mostrandoRevisados
+              ? 'Consulte los expedientes cuya gestión UDI ya concluyó con su derivación a Decanatura.'
+              : 'Abra la ficha del expediente para revisar su documentación y completar la gestión UDI.'
+          }}
+        </p>
       </div>
       <button type="button" class="context-action" @click="router.push({ name: 'dashboard' })">
         <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
         Volver al panel
       </button>
     </header>
+
+    <nav class="inbox-sections" aria-label="Bandejas de expedientes">
+      <RouterLink
+        :to="{ name: 'udi-expedientes-por-revisar' }"
+        :class="{ selected: !mostrandoRevisados }"
+        :aria-current="!mostrandoRevisados ? 'page' : undefined"
+        >Por revisar</RouterLink
+      >
+      <RouterLink
+        :to="{ name: 'udi-expedientes-revisados' }"
+        :class="{ selected: mostrandoRevisados }"
+        :aria-current="mostrandoRevisados ? 'page' : undefined"
+        >Revisados</RouterLink
+      >
+    </nav>
 
     <form class="filter-card" @submit.prevent="cargarExpedientes">
       <div class="filters-grid">
@@ -179,7 +215,7 @@ onMounted(cargarExpedientes)
             v-model.trim="filtros.codigo"
             type="text"
             inputmode="text"
-            pattern="[A-Za-z0-9-]+"
+            pattern="[A-Za-z0-9\-]+"
             placeholder="Ej. EXP-2026A"
             :disabled="cargando"
           />
@@ -245,11 +281,13 @@ onMounted(cargarExpedientes)
       </div>
     </div>
 
-    <div v-else-if="!expedientes.length" class="interface-state empty-state" role="status">
+    <div v-else-if="!expedientesBandeja.length" class="interface-state empty-state" role="status">
       <span class="state-icon material-symbols-outlined" aria-hidden="true">inbox</span>
       <div>
-        <h2>Sin expedientes disponibles</h2>
-        <p>No hay expedientes para los filtros seleccionados.</p>
+        <h2>
+          {{ mostrandoRevisados ? 'Sin expedientes revisados' : 'Sin expedientes por revisar' }}
+        </h2>
+        <p>No hay expedientes en esta bandeja para los filtros seleccionados.</p>
       </div>
     </div>
 
@@ -283,6 +321,7 @@ onMounted(cargarExpedientes)
               <th scope="col">Tesistas</th>
               <th scope="col">Etapa</th>
               <th scope="col">Estado</th>
+              <th scope="col">Avance UDI</th>
               <th scope="col">Acción</th>
             </tr>
           </thead>
@@ -314,14 +353,20 @@ onMounted(cargarExpedientes)
                 </span>
               </td>
               <td class="action-cell">
+                <UdiRevisionProgreso :expediente="expediente" />
+              </td>
+              <td class="action-cell">
                 <button
                   type="button"
                   class="review-button"
                   @click="
-                    router.push({ name: 'udi-revision', params: { id: expediente.id_expediente } })
+                    router.push({
+                      name: 'udi-expediente',
+                      params: { id: expediente.id_expediente },
+                    })
                   "
                 >
-                  Revisar
+                  Ver expediente
                   <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
                 </button>
               </td>
@@ -338,6 +383,23 @@ onMounted(cargarExpedientes)
   display: grid;
   width: 100%;
   gap: var(--siset-space-6);
+}
+
+.inbox-sections {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--siset-color-border);
+}
+.inbox-sections a {
+  padding: 10px 16px;
+  color: var(--siset-color-text-muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  font-weight: 600;
+}
+.inbox-sections a.selected {
+  color: var(--siset-color-primary);
+  border-bottom-color: var(--siset-color-primary);
 }
 
 .inbox-heading {

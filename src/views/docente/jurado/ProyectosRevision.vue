@@ -51,13 +51,6 @@ onMounted(cargar)
 
 <template>
   <div class="min-h-screen flex flex-col bg-background">
-    <header class="flex justify-between items-center h-[70px] px-gutter sticky top-0 z-40 bg-surface-container-lowest border-b border-outline-variant shadow-sm">
-      <h2 class="font-headline-sm text-primary">Docente</h2>
-      <div class="text-right hidden sm:block">
-        <p class="font-headline-sm text-primary"><span class="font-medium">Bienvenido</span> {{ docente.nombre }}</p>
-        <p class="text-label-md text-on-surface-variant">{{ docente.correo }}<span v-if="docente.celular"> · {{ docente.celular }}</span></p>
-      </div>
-    </header>
 
     <main class="p-gutter lg:p-10 space-y-8 max-w-7xl mx-auto w-full">
       <div class="flex flex-col md:flex-row items-center gap-6">

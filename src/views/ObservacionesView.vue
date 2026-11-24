@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
 import { RouterLink, useRoute } from 'vue-router'
 import api from '@/services/api'
+import DocumentoAcciones from '@/components/DocumentoAcciones.vue'
 import { useAuthStore } from '@/stores/auth'
 import type {
   Expediente,
+  RevisionJuradoTesista,
+  JuradoObservaciones,
   ObservacionDocumentaria,
   RevisionDocumentariaConsulta,
   RevisionDocumentariaResponse,
@@ -13,9 +16,43 @@ import type {
 
 const auth = useAuthStore()
 const route = useRoute()
+const etapa = ref<'proyecto' | 'tesis'>('proyecto')
+const evaluador = ref<'udi' | 'jurados'>('udi')
+const revisionesJurados = ref<RevisionJuradoTesista[]>([])
+const juradosAsignados = ref<JuradoObservaciones[]>([])
+const columnasJurados = computed(() => {
+  const jurados = [...juradosAsignados.value]
+  for (const revision of revisionesJurados.value) {
+    if (!jurados.some((item) => item.id_docente === revision.id_docente)) {
+      jurados.push({
+        id_docente: revision.id_docente,
+        docente: revision.docente,
+        cargo: 'Jurado anterior',
+      })
+    }
+  }
+  return jurados.map((jurado) => {
+    const revisiones = revisionesJurados.value.filter(
+      (item) => item.id_docente === jurado.id_docente,
+    )
+    return {
+      ...jurado,
+      revisiones,
+      estado: revisiones.filter((r) => r.vigente !== false).at(-1)?.veredicto ?? 'Pendiente de revisión',
+    }
+  })
+})
+const tieneJurados = computed(() => columnasJurados.value.length > 0)
+const tesisDisponible = computed(() =>
+  [
+    'fase_tesis_informe_final',
+    'revision_jurados_tesis_final',
+    'aprobacion_informe_final',
+    'cierre_archivo',
+  ].includes(expediente.value?.etapa?.codigo ?? ''),
+)
 const expedientes = ref<Expediente[]>([])
 const idExpediente = ref<number | null>(null)
-const ronda = ref<number | null>(null)
 const revision = ref<RevisionDocumentariaConsulta | null>(null)
 const idObservacion = ref<number | null>(null)
 const cargando = ref(true)
@@ -26,17 +63,86 @@ const aviso = ref('')
 const comentarios = ref('')
 const archivo = ref<File | null>(null)
 const entradaArchivo = ref<HTMLInputElement | null>(null)
+const idRevisionJurado = ref<number | null>(null)
+const comentarioJurado = ref('')
+const archivoLevantamiento = ref<File | null>(null)
+const archivoProyecto = ref<File | null>(null)
+const errorJurado = ref('')
+const seleccionJurado = computed(() =>
+  revisionesJurados.value.find((item) => item.id_revision === idRevisionJurado.value),
+)
+function seleccionarJurado(item: RevisionJuradoTesista | null) {
+  idRevisionJurado.value = item?.id_revision ?? null
+  comentarioJurado.value = ''
+  archivoLevantamiento.value = null
+  archivoProyecto.value = null
+  errorJurado.value = ''
+}
+function validarArchivoJurado(evento: Event, tipo: 'levantamiento' | 'proyecto') {
+  const entrada = evento.target as HTMLInputElement
+  const valor = entrada.files?.[0] ?? null
+  const destino = tipo === 'levantamiento' ? archivoLevantamiento : archivoProyecto
+  destino.value = null
+  errorJurado.value = ''
+  if (!valor) return
+  if (!/\.(pdf|docx)$/i.test(valor.name) || valor.size > 30 * 1024 * 1024) {
+    errorJurado.value = 'Selecciona un archivo PDF o DOCX de hasta 30 MiB.'
+    entrada.value = ''
+    return
+  }
+  destino.value = valor
+}
+async function enviarJurado() {
+  if (enviando.value || !seleccionJurado.value?.puede_subsanar) return
+  errorJurado.value = ''
+  aviso.value = ''
+  if (!archivoLevantamiento.value || !archivoProyecto.value) {
+    errorJurado.value =
+      'Adjunta el levantamiento de observaciones y el documento completo corregido.'
+    return
+  }
+  const datos = new FormData()
+  datos.append('detalle', comentarioJurado.value.trim())
+  datos.append('archivo_subsanacion', archivoLevantamiento.value)
+  datos.append('archivo_proyecto', archivoProyecto.value)
+  enviando.value = true
+  try {
+    await api.post(
+      `/expedientes/${idExpediente.value}/revisiones-jurados/${idRevisionJurado.value}/subsanacion`,
+      datos,
+    )
+  } catch (causa) {
+    errorJurado.value = mensaje(
+      causa,
+      'No se pudo enviar la subsanación. Conservamos los archivos para que lo intentes nuevamente.',
+    )
+    enviando.value = false
+    return
+  }
+  // El guardado ya se completó; un fallo al actualizar no debe invitar a reenviarlo.
+  await cargarRevision()
+  aviso.value =
+    'Subsanación enviada. Se registró una nueva versión del documento completo para revisión del jurado.'
+  enviando.value = false
+}
 const expediente = computed(() =>
   expedientes.value.find((item) => item.id_expediente === idExpediente.value),
 )
-const observaciones = computed(
-  () =>
+const observaciones = computed(() =>
+  (
     revision.value?.revision?.requisitos.flatMap((requisito) =>
       (requisito.evaluacion?.observaciones ?? []).map((observacion) => ({
         requisito,
         observacion,
       })),
-    ) ?? [],
+    ) ?? []
+  )
+    .sort(
+      (a, b) =>
+        a.observacion.fecha_emision.localeCompare(b.observacion.fecha_emision) ||
+        a.observacion.id_observacion_documentaria - b.observacion.id_observacion_documentaria,
+    )
+    .map((item, indice) => ({ ...item, numeroRonda: indice + 1 })),
 )
 const actual = computed(() =>
   observaciones.value.find(
@@ -51,6 +157,8 @@ const puedeEnviar = computed(() => {
   const item = actual.value?.observacion
   const alumno = auth.usuario?.alumno?.id_alumno
   return (
+    etapa.value === 'proyecto' &&
+    evaluador.value === 'udi' &&
     auth.tieneRol('tesista') &&
     alumno !== undefined &&
     [expediente.value?.id_tesista, expediente.value?.id_co_tesista].includes(alumno) &&
@@ -68,7 +176,9 @@ function etiqueta(estado: ObservacionDocumentaria['estado']) {
 function mensaje(causa: unknown, defecto: string) {
   if (!axios.isAxiosError(causa)) return defecto
   return (
-    causa.response?.data?.errors?.archivo_adjunto?.[0] || causa.response?.data?.message || defecto
+    (Object.values(causa.response?.data?.errors ?? {}).flat()[0] as string) ||
+    causa.response?.data?.message ||
+    defecto
   )
 }
 function claveBorrador() {
@@ -116,32 +226,46 @@ function soltarArchivo(evento: DragEvent) {
   validarArchivo(evento.dataTransfer?.files[0] ?? null)
 }
 async function cargarRevision() {
+  seleccionarJurado(null)
+  revision.value = null
+  revisionesJurados.value = []
+  juradosAsignados.value = []
+  seleccionar(null)
   if (idExpediente.value === null) return
   cargando.value = true
   error.value = ''
-  revision.value = null
-  seleccionar(null)
   try {
-    const { data } = await api.get<RevisionDocumentariaResponse>(
-      `/expedientes/${idExpediente.value}/revision-documentaria`,
-      { params: ronda.value ? { ronda: ronda.value } : {} },
-    )
-    revision.value = data.data
-    ronda.value = data.data.revision?.numero_ronda ?? null
-    seleccionar(
-      (
-        observaciones.value.find((item) => item.observacion.estado === 'pendiente') ??
-        observaciones.value[0]
-      )?.observacion.id_observacion_documentaria ?? null,
-    )
+    const respuesta = await api.get<{
+      data: RevisionJuradoTesista[]
+      jurados: JuradoObservaciones[]
+    }>(`/expedientes/${idExpediente.value}/revisiones-jurados`, { params: { etapa: etapa.value } })
+    revisionesJurados.value = respuesta.data.data
+    juradosAsignados.value = respuesta.data.jurados
+    if (!tieneJurados.value) evaluador.value = 'udi'
+    if (evaluador.value === 'udi' && etapa.value === 'proyecto') {
+      const { data } = await api.get<RevisionDocumentariaResponse>(
+        `/expedientes/${idExpediente.value}/revision-documentaria`,
+      )
+      revision.value = data.data
+      seleccionar(
+        (
+          observaciones.value.find((item) => item.observacion.estado === 'pendiente') ??
+          observaciones.value[0]
+        )?.observacion.id_observacion_documentaria ?? null,
+      )
+    }
   } catch (causa) {
     error.value = mensaje(causa, 'No se pudieron cargar las observaciones.')
   } finally {
     cargando.value = false
   }
 }
+async function cambiarEtapa() {
+  if (etapa.value === 'tesis' && !tesisDisponible.value) etapa.value = 'proyecto'
+  evaluador.value = 'jurados'
+  await cambiarExpediente()
+}
 async function cambiarExpediente() {
-  ronda.value = null
   await cargarRevision()
 }
 async function cargar() {
@@ -150,12 +274,22 @@ async function cargar() {
   try {
     const { data } = await api.get<Expediente[]>('/expedientes')
     expedientes.value = data
-    const solicitado = idExpediente.value ?? Number(route.query.expediente)
+    const solicitado = Number(route.query.expediente) || idExpediente.value
     idExpediente.value =
       data.find((item) => item.id_expediente === solicitado)?.id_expediente ??
       data[0]?.id_expediente ??
       null
-    await cargarRevision()
+    etapa.value =
+      route.query.etapa === 'proyecto'
+        ? 'proyecto'
+        : route.query.etapa === 'tesis' && tesisDisponible.value
+          ? 'tesis'
+          : ['revision_jurados_tesis_final', 'aprobacion_informe_final', 'cierre_archivo'].includes(
+                expediente.value?.etapa?.codigo ?? '',
+              )
+            ? 'tesis'
+            : 'proyecto'
+    await cambiarEtapa()
   } catch (causa) {
     error.value = mensaje(causa, 'No se pudieron cargar los expedientes.')
   } finally {
@@ -196,6 +330,7 @@ async function enviar() {
     enviando.value = false
   }
 }
+watch(() => [route.query.etapa, route.query.expediente], cargar)
 onMounted(cargar)
 </script>
 
@@ -208,10 +343,6 @@ onMounted(cargar)
           Gestiona y responde a las observaciones emitidas durante la revisión de tu expediente.
         </p>
       </div>
-      <div class="round-badge">
-        <span class="material-symbols-outlined" aria-hidden="true">cycle</span
-        ><strong>Ronda Actual:</strong><span>{{ ultimaRonda || 'Sin revisión' }}</span>
-      </div>
     </header>
     <section class="card filters" aria-label="Filtros de observaciones">
       <span class="filter-label"
@@ -219,40 +350,24 @@ onMounted(cargar)
       >
       <label v-if="expedientes.length > 1"
         ><span class="sr-only">Expediente</span
-        ><select
-          v-model="idExpediente"
-          :disabled="cargando || enviando"
-          @change="cambiarExpediente"
-        >
+        ><select v-model="idExpediente" :disabled="cargando || enviando" @change="cambiarEtapa">
           <option v-for="item in expedientes" :key="item.id_expediente" :value="item.id_expediente">
             {{ item.cod_expediente }}
           </option>
         </select></label
       >
       <label
-        ><span class="sr-only">Evaluador</span
-        ><select
-          disabled
-          title="Por ahora están disponibles las observaciones documentarias de UDI"
-        >
-          <option>UDI · Revisión documentaria</option>
+        ><span class="sr-only">Etapa</span
+        ><select v-model="etapa" :disabled="cargando || enviando" @change="cambiarEtapa">
+          <option value="proyecto">Proyecto de tesis</option>
+          <option value="tesis" :disabled="!tesisDisponible">Tesis final</option>
         </select></label
       >
       <label
-        ><span class="sr-only">Ronda</span
-        ><select
-          v-model="ronda"
-          :disabled="cargando || enviando || !revision?.rondas.length"
-          @change="cargarRevision"
-        >
-          <option v-if="!revision?.rondas.length" :value="null">Sin rondas registradas</option>
-          <option
-            v-for="item in revision?.rondas ?? []"
-            :key="item.numero_ronda"
-            :value="item.numero_ronda"
-          >
-            Ronda {{ item.numero_ronda }}
-          </option>
+        ><span class="sr-only">Evaluador</span
+        ><select v-model="evaluador" :disabled="cargando || enviando" @change="cambiarExpediente">
+          <option v-if="etapa === 'proyecto'" value="udi">UDI · Revisión documentaria</option>
+          <option v-if="tieneJurados" value="jurados">Jurados</option>
         </select></label
       >
     </section>
@@ -269,9 +384,154 @@ onMounted(cargar)
         >Registrar expediente</RouterLink
       >
     </div>
+    <div v-else-if="evaluador === 'jurados'" class="jury-history">
+      <p class="notice">
+        {{ etapa === 'tesis' ? 'Tesis final' : 'Proyecto de tesis' }} · Las rondas de cada etapa se
+        conservan por separado.
+      </p>
+      <div v-if="etapa === 'tesis' && !revisionesJurados.length" class="card empty">
+        <p>
+          La tesis final aún no tiene revisiones registradas. Las aprobaciones del proyecto se
+          conservan en su propia etapa.
+        </p>
+        <RouterLink
+          :to="{ name: 'observaciones', query: { expediente: idExpediente, etapa: 'proyecto' } }"
+          >Ver aprobaciones y rondas del proyecto de tesis</RouterLink
+        >
+      </div>
+      <div class="jury-columns">
+        <article
+          v-for="jurado in columnasJurados"
+          :key="jurado.id_docente"
+          class="card jury-column"
+        >
+          <header class="jury-heading">
+            <h2>{{ jurado.docente }}</h2>
+            <p>{{ jurado.cargo }}</p>
+            <span v-if="jurado.estado.toLowerCase() === 'aprobado'" class="jury-approved">
+              <span class="material-symbols-outlined" aria-hidden="true">check_circle</span>Aprobado
+            </span>
+          </header>
+          <div class="jury-rounds">
+            <p v-if="!jurado.revisiones.length" class="muted">
+              Aún no registra revisiones en esta etapa.
+            </p>
+            <section v-for="item in jurado.revisiones" :key="item.id_revision" class="jury-round">
+              <p v-if="item.vigente === false" class="muted">Revisión histórica anterior al cambio; no cuenta para la evaluación actual.</p>
+              <h3>Ronda {{ item.numero_ronda }}</h3>
+              <span
+                class="status"
+                :class="item.veredicto.toLowerCase() === 'aprobado' ? 'cerrada' : 'pendiente'"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">{{
+                  item.veredicto.toLowerCase() === 'aprobado' ? 'check_circle' : 'rate_review'
+                }}</span
+                >{{ item.veredicto }}
+              </span>
+              <p v-if="item.comentarios" class="observation-text">{{ item.comentarios }}</p>
+              <DocumentoAcciones
+                v-if="item.archivo_observacion"
+                :archivo="item.archivo_observacion"
+                nombre="Carta de observaciones del jurado"
+              />
+              <div v-if="item.subsanacion" class="jury-response">
+                <strong>Observaciones levantadas enviadas</strong>
+                <small>{{ new Date(item.subsanacion.fecha).toLocaleDateString('es-PE') }}</small>
+                <p v-if="item.subsanacion.detalle" class="observation-text">
+                  {{ item.subsanacion.detalle }}
+                </p>
+                <DocumentoAcciones
+                  v-if="item.subsanacion.archivo"
+                  :archivo="item.subsanacion.archivo"
+                  nombre="Levantamiento de observaciones"
+                />
+                <DocumentoAcciones
+                  v-if="item.subsanacion.proyecto"
+                  :archivo="item.subsanacion.proyecto"
+                  :nombre="
+                    etapa === 'tesis' ? 'Tesis completa corregida' : 'Proyecto completo corregido'
+                  "
+                />
+              </div>
+              <button
+                v-else-if="item.puede_subsanar"
+                class="button primary jury-reply"
+                type="button"
+                :disabled="enviando"
+                @click="seleccionarJurado(item)"
+              >
+                Subsanar observaciones
+              </button>
+              <small v-if="item.fecha_revision">{{
+                new Date(item.fecha_revision).toLocaleDateString('es-PE')
+              }}</small>
+            </section>
+          </div>
+        </article>
+      </div>
+      <form
+        v-if="seleccionJurado?.puede_subsanar"
+        :key="seleccionJurado.id_revision"
+        class="card correction-panel jury-form"
+        @submit.prevent="enviarJurado"
+      >
+        <h2>
+          Subsanar observaciones · {{ seleccionJurado.docente }} · Ronda
+          {{ seleccionJurado.numero_ronda }}
+        </h2>
+        <label class="field"
+          >Comentarios al jurado<textarea
+            v-model="comentarioJurado"
+            :disabled="enviando"
+            maxlength="5000"
+            rows="3"
+            placeholder="Detalla los cambios realizados"
+          ></textarea>
+        </label>
+        <label class="field"
+          >Documento de levantamiento de observaciones
+          <input
+            type="file"
+            accept=".pdf,.docx"
+            :disabled="enviando"
+            required
+            @change="validarArchivoJurado($event, 'levantamiento')"
+          />
+          <small>PDF o DOCX, hasta 30 MiB.</small>
+        </label>
+        <label class="field"
+          >{{ etapa === 'tesis' ? 'Tesis completa corregida' : 'Proyecto completo corregido' }}
+          <input
+            type="file"
+            accept=".pdf,.docx"
+            :disabled="enviando"
+            required
+            @change="validarArchivoJurado($event, 'proyecto')"
+          />
+          <small
+            >Adjunta el documento completo. Se guardará como una nueva versión. PDF o DOCX, hasta 30
+            MiB.</small
+          >
+        </label>
+        <p v-if="errorJurado" class="form-error" role="alert">{{ errorJurado }}</p>
+        <div class="form-actions">
+          <button
+            type="button"
+            class="button"
+            :disabled="enviando"
+            @click="seleccionarJurado(null)"
+          >
+            Cancelar
+          </button>
+          <button type="submit" class="button primary" :disabled="enviando">
+            {{ enviando ? 'Enviando…' : 'Enviar subsanación' }}
+          </button>
+        </div>
+      </form>
+    </div>
     <div v-else-if="!actual" class="card empty">
       <span class="material-symbols-outlined" aria-hidden="true">task_alt</span>
-      <p>No hay observaciones registradas en esta ronda.</p>
+      <p>No hay observaciones registradas.</p>
     </div>
     <div v-else class="observations-grid">
       <article class="card active-card">
@@ -280,7 +540,7 @@ onMounted(cargar)
             <span class="avatar">UDI</span>
             <div>
               <h2>Unidad de Investigación</h2>
-              <p>{{ actual.requisito.nombre }}</p>
+              <p>{{ actual.requisito.nombre }} · Ronda {{ actual.numeroRonda }}</p>
             </div>
           </div>
           <span class="status" :class="actual.observacion.estado"
@@ -360,7 +620,7 @@ onMounted(cargar)
                   ? 'Esta observación está cerrada.'
                   : !actual.observacion.es_subsanable
                     ? 'Esta observación no es subsanable.'
-                    : 'El envío de subsanaciones no está habilitado para esta ronda o el estado actual del expediente.'
+                    : 'El envío de subsanaciones no está habilitado para el estado actual del expediente.'
             }}
           </p>
         </div>
@@ -378,7 +638,7 @@ onMounted(cargar)
               ><span class="avatar small">UDI</span
               ><span
                 ><strong>{{ item.requisito.nombre }}</strong
-                ><small>Unidad de Investigación</small></span
+                ><small>Unidad de Investigación · Ronda {{ item.numeroRonda }}</small></span
               ></span
             ><span class="status" :class="item.observacion.estado"
               ><span class="status-dot"></span>{{ etiqueta(item.observacion.estado) }}</span
@@ -387,7 +647,7 @@ onMounted(cargar)
         </button>
         <div v-if="!otras.length" class="card other-card muted">
           <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>
-          <p>No hay otras observaciones en esta ronda.</p>
+          <p>No hay otras observaciones.</p>
         </div>
       </aside>
     </div>
@@ -395,6 +655,88 @@ onMounted(cargar)
 </template>
 
 <style scoped>
+.jury-response {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #c5c6d1;
+}
+.jury-response > small {
+  display: block;
+  margin-top: 4px;
+}
+.jury-reply,
+.jury-form {
+  margin-top: 20px;
+}
+.jury-form input[type='file'] {
+  padding: 12px;
+  background: white;
+  border: 1px solid #c5c6d1;
+  border-radius: 4px;
+}
+.jury-history {
+  display: grid;
+  gap: 16px;
+}
+.jury-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+.jury-column {
+  overflow: hidden;
+}
+.jury-heading {
+  background: #283a70;
+  color: white;
+  padding: 20px;
+}
+.jury-heading p {
+  opacity: 0.85;
+  margin-top: 4px;
+}
+.jury-approved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #d7f5e8;
+  color: #005045;
+  font-weight: 700;
+}
+.jury-approved .material-symbols-outlined {
+  font-size: 20px;
+}
+.jury-rounds {
+  padding: 20px;
+  display: grid;
+  gap: 24px;
+}
+.jury-round {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e2e2e8;
+}
+.jury-round:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.jury-round .status {
+  justify-self: start;
+  white-space: normal;
+}
+.jury-round h3 {
+  font-size: 14px;
+}
+@media (max-width: 850px) {
+  .jury-columns {
+    grid-template-columns: 1fr;
+  }
+}
 .observaciones-view {
   max-width: 1440px;
   margin: 0 auto;
@@ -422,27 +764,6 @@ h1 {
 }
 .page-heading p {
   color: #45464f;
-}
-.round-badge {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
-  border: 1px solid #c5c6d1;
-  border-radius: 12px;
-  background: white;
-  font-size: 12px;
-  white-space: nowrap;
-  box-shadow: 0 2px 4px #0000000d;
-}
-.round-badge .material-symbols-outlined {
-  color: #283a70;
-}
-.round-badge > span:last-child {
-  background: #dce1ff;
-  color: #283a70;
-  padding: 4px 8px;
-  border-radius: 2px;
 }
 .card {
   background: white;

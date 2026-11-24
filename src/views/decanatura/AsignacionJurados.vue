@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import api from '@/services/api'
 
@@ -18,6 +18,7 @@ type Expediente = {
 type Respuesta = { metricas: Metricas; expedientes: Expediente[] }
 
 const router = useRouter()
+const route = useRoute()
 const cargando = ref(true)
 const error = ref('')
 const busqueda = ref('')
@@ -55,7 +56,10 @@ async function cargarListado() {
 }
 
 function abrirAsignacion(id: number) {
-  router.push({ name: 'decanatura-asignacion-individual', params: { id } })
+  router.push({
+    name: String(route.name).startsWith('udi-') ? 'udi-jurados-propuesta' : 'decanatura-asignacion-individual',
+    params: { id },
+  })
 }
 
 function formatearFecha(fecha: string) {
@@ -76,7 +80,7 @@ onMounted(cargarListado)
 <template>
   <div class="max-w-container-max-width mx-auto">
     <div class="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3 mb-8">
-      <h2 class="font-headline-lg text-headline-lg text-primary mb-1">Asignación de Jurados</h2>
+      <div><h2 class="font-headline-lg text-headline-lg text-primary mb-1">Asignación de Jurados - Expedientes Aptos</h2><p class="text-on-surface-variant">Solo se muestran expedientes con conformidad técnica emitida.</p></div>
     </div>
 
     <div v-if="error" class="mb-5 rounded-xl border border-status-error/30 bg-error-container px-4 py-3 text-status-error">

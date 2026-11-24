@@ -13,6 +13,19 @@ const seleccionado = ref<number | null>(null)
 const detalle = ref<ExpedienteDetalle | null>(null)
 const cargando = ref(true)
 const error = ref('')
+const resolucionProyecto = ref<{ numero_resolucion: string; archivo_pdf: string } | null>(null)
+const errorResolucion = ref('')
+const faseIniciada = computed(() =>
+  ['revision_jurados_tesis_final', 'aprobacion_informe_final', 'cierre_archivo'].includes(
+    detalle.value?.etapa_actual?.codigo ?? '',
+  ),
+)
+const proyecto = computed(
+  () =>
+    [...(detalle.value?.informes ?? [])]
+      .filter((item) => item.es_tesis === 0)
+      .sort((a, b) => b.version - a.version)[0],
+)
 const habilitada = computed(
   () =>
     detalle.value?.etapa_actual?.codigo === 'fase_tesis_informe_final' &&
@@ -32,13 +45,22 @@ const requisitos = computed(() => [
   {
     nombre: 'Proyecto aprobado',
     valor:
-      habilitada.value || detalle.value?.estado_actual?.codigo === 'proyecto_aprobado'
+      habilitada.value ||
+      faseIniciada.value ||
+      detalle.value?.estado_actual?.codigo === 'proyecto_aprobado'
         ? 'Sí'
         : 'Sin confirmar',
-    icono: habilitada.value ? 'check_circle' : 'info',
-    conforme: habilitada.value,
+    icono: habilitada.value || faseIniciada.value ? 'check_circle' : 'info',
+    conforme: habilitada.value || faseIniciada.value,
   },
-  { nombre: 'Resolución de expedición', valor: 'No disponible', icono: 'info', conforme: false },
+  {
+    nombre: 'Resolución de aprobación',
+    valor:
+      resolucionProyecto.value?.numero_resolucion ??
+      (errorResolucion.value ? 'No se pudo consultar' : 'Pendiente'),
+    icono: resolucionProyecto.value ? 'check_circle' : 'info',
+    conforme: Boolean(resolucionProyecto.value),
+  },
   {
     nombre: 'Observaciones pendientes',
     valor: habilitada.value
@@ -50,19 +72,32 @@ const requisitos = computed(() => [
     conforme: habilitada.value,
   },
 ])
-const ejemplo = [
-  { nombre: 'Proyecto aprobado', valor: 'Sí' },
-  { nombre: 'Resolución de expedición', valor: 'Emitida' },
-  { nombre: 'Observaciones pendientes', valor: 'Resueltas' },
-]
 async function cargarDetalle() {
   if (seleccionado.value === null) return
   cargando.value = true
   error.value = ''
   detalle.value = null
+  resolucionProyecto.value = null
+  errorResolucion.value = ''
   try {
     const { data } = await api.get<ExpedienteDetalleResponse>(`/expedientes/${seleccionado.value}`)
     detalle.value = data.data
+    try {
+      const respuesta = await api.get<{
+        data: {
+          tipo_resolucion: string
+          estado: string
+          numero_resolucion: string
+          archivo_pdf: string
+        }[]
+      }>('/resoluciones', { params: { id_expediente: seleccionado.value } })
+      resolucionProyecto.value =
+        respuesta.data.data.find(
+          (item) => item.tipo_resolucion === 'aprobacion_proyecto' && item.estado === 'vigente',
+        ) ?? null
+    } catch {
+      errorResolucion.value = 'No se pudo consultar la resolución de aprobación.'
+    }
     if (!data.data) error.value = 'No hay información de detalle disponible para este expediente.'
   } catch (causa) {
     error.value = axios.isAxiosError(causa)
@@ -141,12 +176,22 @@ onMounted(cargar)
           <span class="phase-icon material-symbols-outlined" aria-hidden="true">{{
             habilitada ? 'check_circle' : 'lock'
           }}</span>
-          <h2>{{ habilitada ? 'Fase habilitada' : 'Fase bloqueada' }}</h2>
+          <h2>
+            {{
+              habilitada
+                ? 'Fase habilitada'
+                : faseIniciada
+                  ? 'Fase de tesis en curso'
+                  : 'Fase bloqueada'
+            }}
+          </h2>
           <p>
             {{
               habilitada
                 ? 'El expediente tiene habilitada la fase de tesis. Puede proceder con el registro del informe final.'
-                : 'No es posible continuar. Revise los requisitos pendientes a continuación.'
+                : faseIniciada
+                  ? 'El informe final ya ingresó a evaluación. Consulte sus rondas y el historial del expediente.'
+                  : 'No es posible continuar. Revise los requisitos pendientes a continuación.'
             }}
           </p>
           <dl class="requirements">
@@ -168,35 +213,31 @@ onMounted(cargar)
           </button>
         </div>
       </article>
-      <article
-        class="card phase-card enabled example-card"
-        aria-label="Ejemplo ilustrativo de la fase habilitada"
-      >
+      <article class="card phase-card">
         <header class="card-heading">
-          <span class="material-symbols-outlined" aria-hidden="true">visibility</span
-          ><span>Ejemplo: Al cumplir requisitos</span>
+          <span class="material-symbols-outlined" aria-hidden="true">history</span>Proyecto de tesis
         </header>
         <div class="card-body">
-          <span class="phase-icon material-symbols-outlined" aria-hidden="true">check_circle</span>
-          <h2>Fase habilitada</h2>
-          <p>Todos los requisitos han sido validados con éxito. Puede proceder.</p>
-          <dl class="requirements">
-            <div v-for="requisito in ejemplo" :key="requisito.nombre">
-              <dt>{{ requisito.nombre }}</dt>
-              <dd class="success">
-                {{ requisito.valor
-                }}<span class="material-symbols-outlined" aria-hidden="true">check_circle</span>
-              </dd>
-            </div>
-          </dl>
-          <button
-            class="register-button example-button"
-            disabled
-            title="Ejemplo ilustrativo. El registro se realiza desde Estado Actual."
+          <h2>{{ proyecto?.titulo ?? 'Proyecto registrado' }}</h2>
+          <p>
+            El proyecto, sus versiones, resoluciones y rondas de revisión se conservan al iniciar la
+            tesis final. La tesis registra sus propias versiones y rondas.
+          </p>
+          <p v-if="resolucionProyecto">
+            Resolución de aprobación: <strong>{{ resolucionProyecto.numero_resolucion }}</strong>
+          </p>
+          <p v-if="errorResolucion" role="alert">{{ errorResolucion }}</p>
+          <RouterLink
+            :to="{ name: 'observaciones', query: { expediente: seleccionado, etapa: 'proyecto' } }"
+            >Consultar rondas del proyecto</RouterLink
           >
-            <span class="material-symbols-outlined" aria-hidden="true">upload_file</span>Registrar
-            informe final
-          </button>
+          <RouterLink
+            :to="{ name: 'observaciones', query: { expediente: seleccionado, etapa: 'tesis' } }"
+            >Consultar rondas de la tesis</RouterLink
+          >
+          <RouterLink :to="{ name: 'expedientes-detalle', params: { id: seleccionado } }"
+            >Ver documentos e historial completo</RouterLink
+          >
         </div>
       </article>
     </div>
@@ -269,6 +310,7 @@ h1 {
   flex-direction: column;
   align-items: center;
   text-align: center;
+  gap: 8px;
   padding: 24px;
 }
 .phase-icon {
@@ -379,11 +421,7 @@ h2 {
   color: #006b5c;
   border: 1px solid #006b5c4d;
 }
-.register-button.example-button:disabled {
-  background: #006b5c;
-  color: white;
-  opacity: 1;
-}
+
 .file-picker {
   display: flex;
   align-items: center;

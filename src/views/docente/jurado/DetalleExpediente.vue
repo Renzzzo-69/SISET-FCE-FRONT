@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
+import PlazosExpediente from '@/components/PlazosExpediente.vue'
 
 type Persona = { nombre: string; correo: string | null; celular: string | null }
 type Jurado = Persona & {
@@ -100,7 +101,7 @@ watch(() => [props.id, props.kind, props.responsibility], cargar, { immediate: t
 <template>
   <div class="min-h-screen flex flex-col bg-background">
     <header
-      class="flex justify-between items-center h-[70px] px-gutter sticky top-0 z-40 bg-surface-container-lowest border-b border-outline-variant shadow-sm"
+      class="flex justify-between items-center h-[70px] px-gutter bg-surface-container-lowest border-b border-outline-variant shadow-sm"
     >
       <div class="flex items-center gap-3">
         <button class="p-2 rounded-full hover:bg-surface-container" @click="router.back()">
@@ -111,6 +112,7 @@ watch(() => [props.id, props.kind, props.responsibility], cargar, { immediate: t
       <span class="text-sm text-on-surface-variant capitalize">{{ responsibility }}</span>
     </header>
     <main class="p-gutter lg:p-10 max-w-7xl mx-auto w-full">
+      <PlazosExpediente v-if="detalle && props.responsibility === 'jurado'" :expediente="props.id" @registrado="cargar" />
       <div v-if="cargando" class="py-20 text-center text-on-surface-variant">
         Cargando información del expediente...
       </div>

@@ -55,6 +55,9 @@ export interface CandidatoTesista {
 }
 
 export interface ParticipanteExpediente {
+  dni?: string | null
+  celular?: string | null
+  correo_electronico?: string | null
   id_alumno: number
   apellido_paterno: string
   apellido_materno: string
@@ -76,6 +79,7 @@ export interface EstadoExpedienteActual {
 export interface InformeExpediente {
   id_informe_proyecto_tesis: number
   id_asesor?: number | null
+  id_coasesor?: number | null
   version: number
   es_tesis: 0 | 1
   titulo: string
@@ -139,6 +143,7 @@ export interface EventoHistorialExpediente {
   responsable: {
     id_usuario: number
     nombre: string | null
+    roles?: { codigo: string; nombre: string }[]
   } | null
 }
 
@@ -154,6 +159,8 @@ export type ResultadoRevisionSubsanacion = 'aceptada' | 'rechazada'
 
 export interface RevisarSubsanacionPayload {
   resultado: ResultadoRevisionSubsanacion
+  id_informe?: number
+  turnitin?: number
 }
 
 export interface SubsanacionDocumentaria {
@@ -212,6 +219,12 @@ export interface RevisionDocumentariaConsulta {
   id_expediente: number
   rondas: ResumenRevisionDocumentaria[]
   revision: RevisionDocumentariaDetalle | null
+  documentos_derivacion: {
+    conformidad_tecnica: string | null
+    informe_turnitin: string | null
+    propuesta_jurados: string | null
+    id_designacion: number | null
+  }
 }
 
 export interface RevisionDocumentariaResponse {
@@ -238,4 +251,34 @@ export interface ExpedienteDetalle {
 
 export interface ExpedienteDetalleResponse {
   data: ExpedienteDetalle | null
+}
+
+export interface RevisionJuradoTesista {
+  vigente?: boolean
+  id_docente: number
+  id_revision: number
+  numero_ronda: number
+  veredicto: string
+  comentarios: string | null
+  fecha_revision: string | null
+  docente: string
+  archivo_observacion?: ArchivoConsulta | null
+  puede_subsanar?: boolean
+  subsanacion?: {
+    archivo: ArchivoConsulta | null
+    proyecto: ArchivoConsulta | null
+    fecha: string
+    detalle: string | null
+  } | null
+}
+
+export interface ArchivoConsulta {
+  ruta: string
+  formato: 'pdf' | 'docx' | null
+}
+
+export interface JuradoObservaciones {
+  id_docente: number
+  cargo: string
+  docente: string
 }

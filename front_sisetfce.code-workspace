@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../VISTAS_SISET_FCE_BACKUP"
+		},
+		{
+			"path": "../back_sisetfce"
+		}
+	],
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "VISTAS_SISET_FCE_BACKUP"
+	}
+}

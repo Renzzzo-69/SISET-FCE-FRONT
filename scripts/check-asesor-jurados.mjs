@@ -26,9 +26,38 @@ const setup = new Function(
   'computed',
   'ref',
   'onMounted',
-  `${source}\nreturn { seleccionado, jurados, tribunal, juradoPorCargo, detalle, informe };`,
+  'api',
+  `${source}\nreturn { seleccionado, jurados, tribunal, juradoPorCargo, detalle, informe, cargarAsignaciones, cargarDetalle, asesor, coasesor, errorAsesor, errorCoasesor, equipoAsesor };`,
 )
-const view = setup(computed, ref, () => {})
+const consultas = []
+let fallaCoasesor = false
+let idCoasesor = 21
+const docente = (id) => ({
+  id_docente: id,
+  nombres: `Docente ${id}`,
+  dni: '01234567',
+  celular: '999888777',
+  usuario: { correo_electronico: `d${id}@siset.test` },
+})
+const api = {
+  get: async (url, opciones) => {
+    consultas.push({ url, opciones })
+    if (url === '/expedientes/7')
+      return {
+        data: {
+          data: {
+            informes: [
+              { id_asesor: 20, id_coasesor: idCoasesor, es_tesis: 1, version: 1, estado: 1 },
+            ],
+          },
+        },
+      }
+    if (url === '/docentes/21' && fallaCoasesor) throw Error()
+    if (url.startsWith('/docentes/')) return { data: docente(Number(url.split('/').at(-1))) }
+    return { data: [] }
+  },
+}
+const view = setup(computed, ref, () => {}, api)
 view.seleccionado.value = 7
 const jurado = (id, expediente, version, estado, cargo = 'Presidente') => ({
   id_jurado: id,
@@ -75,3 +104,26 @@ assert.equal(
   'Usa el informe activo más reciente de la fase final',
 )
 console.log('OK: expediente, vigencia, cargos y selección del asesor.')
+view.detalle.value.informes[1].id_coasesor = 21
+await view.cargarAsignaciones()
+assert.equal(view.asesor.value.id_docente, 20)
+assert.equal(view.coasesor.value.id_docente, 21)
+assert.equal(view.equipoAsesor.value[1].titulo, 'Coasesor')
+assert.deepEqual(consultas.find((item) => item.url === '/jurados-expediente').opciones, {
+  params: { id_expediente: 7 },
+})
+fallaCoasesor = true
+await view.cargarDetalle()
+assert.equal(view.asesor.value.id_docente, 20)
+assert.equal(view.coasesor.value, null)
+assert.match(view.errorCoasesor.value, /coasesor/)
+idCoasesor = null
+consultas.length = 0
+await view.cargarDetalle()
+assert.equal(view.coasesor.value, null)
+assert.equal(view.errorCoasesor.value, '')
+assert.ok(!consultas.some((item) => item.url === '/docentes/21'))
+assert.match(descriptor.template.content, /mailto:/)
+assert.match(descriptor.template.content, /tel:/)
+assert.match(descriptor.template.content, /docente\?\.dni/)
+console.log('OK: contactos, coasesor, error parcial y limpieza de asignaciones anteriores.')

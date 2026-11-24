@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import axios from 'axios'
 import { useRoute, useRouter } from 'vue-router'
 
 import api from '@/services/api'
+import PlazosExpediente from '@/components/PlazosExpediente.vue'
 
 type Expediente = { id: number; codigo: string; tesista: string; estado: string; estado_codigo: string }
-type Contexto = Expediente & { titulo: string; escuela: string; asesor: string; coasesor: string | null }
+type Contexto = Expediente & { titulo: string; escuela: string; id_escuela: number; linea_investigacion: string | null; asesor: string; coasesor: string | null }
 type Docente = {
   id: number
   iniciales: string
@@ -14,9 +16,12 @@ type Docente = {
   escuela: string
   id_area: number
   area: string
+  especialidades: string[]
   carga: number
   estado_carga: 'Asesor' | 'Disponible' | 'Moderado' | 'Sobrecargado'
   no_seleccionable: boolean
+  misma_escuela: boolean
+  coincide_especialidad: boolean
 }
 type Catalogo = { id: number; nombre: string }
 type Respuesta = {
@@ -28,11 +33,14 @@ type Respuesta = {
 
 const router = useRouter()
 const route = useRoute()
+const esUdi = computed(() => String(route.name).startsWith('udi-'))
 const roles = ['Presidente', 'Secretario', 'Vocal']
 const maxJurados = 3
 const cargando = ref(true)
 const error = ref('')
 const aviso = ref('')
+const guardando = ref(false)
+const exito = ref('')
 const expedientes = ref<Expediente[]>([])
 const expedienteSeleccionado = ref<number | null>(null)
 const contexto = ref<Contexto | null>(null)
@@ -43,6 +51,7 @@ const busqueda = ref('')
 const escuelaSeleccionada = ref<number | ''>('')
 const areaSeleccionada = ref<number | ''>('')
 const seleccionados = ref<Record<number, string>>({})
+const archivoPropuesta = ref<File | null>(null)
 
 const docentesFiltrados = computed(() => {
   const termino = busqueda.value.trim().toLocaleLowerCase('es')
@@ -87,12 +96,14 @@ function cambiarExpediente() {
 
 function alternarDocente(docente: Docente, marcado: boolean) {
   aviso.value = ''
-  if (docente.no_seleccionable) return
+  if (docente.no_seleccionable || guardando.value) return
 
   if (!marcado) {
     delete seleccionados.value[docente.id]
     return
   }
+
+  if (docente.id in seleccionados.value) return
 
   if (cantidadSeleccionados.value >= maxJurados) {
     aviso.value = 'Solo puede seleccionar tres docentes.'
@@ -102,14 +113,79 @@ function alternarDocente(docente: Docente, marcado: boolean) {
   seleccionados.value[docente.id] = ''
 }
 
-function validarSeleccion() {
+function seleccionBloqueada(docente: Docente) {
+  return cargando.value || guardando.value || docente.no_seleccionable ||
+    (cantidadSeleccionados.value >= maxJurados && !(docente.id in seleccionados.value))
+}
+
+function cambiarSeleccion(docente: Docente, evento: Event) {
+  const casilla = evento.target as HTMLInputElement
+  alternarDocente(docente, casilla.checked)
+  casilla.checked = docente.id in seleccionados.value
+}
+
+function cancelar() {
+  if (guardando.value) return
+  seleccionados.value = {}
+  archivoPropuesta.value = null
+  aviso.value = ''
+  return router.push({ name: esUdi.value ? 'udi-jurados' : 'decanatura-asignacion' })
+}
+
+function cargoOcupado(cargo: string, idDocente: number) {
+  return Object.entries(seleccionados.value).some(
+    ([id, seleccionado]) => Number(id) !== idDocente && seleccionado === cargo,
+  )
+}
+
+async function validarSeleccion() {
   const cargos = Object.values(seleccionados.value)
   if (cantidadSeleccionados.value !== maxJurados || cargos.some((cargo) => !cargo) || new Set(cargos).size !== maxJurados) {
     aviso.value = 'Seleccione exactamente tres docentes y asigne un cargo diferente a cada uno.'
     return
   }
 
-  aviso.value = 'Selección válida. Según el flujo actual, UDI debe registrar esta propuesta y Decanatura la ratifica mediante una resolución.'
+  if (docentesSeleccionados.value.filter((docente) => docente.misma_escuela).length < 2) {
+    aviso.value = 'Seleccione al menos dos docentes de la misma escuela del tesista.'
+    return
+  }
+
+  if (!archivoPropuesta.value) {
+    aviso.value = 'Adjunte el documento PDF de propuesta de jurados.'
+    return
+  }
+
+  if (!contexto.value) return
+  guardando.value = true
+  aviso.value = ''
+  try {
+    const formulario = new FormData()
+    Object.entries(seleccionados.value).forEach(([idDocente, cargo], indice) => {
+      formulario.append(`jurados[${indice}][id_docente]`, idDocente)
+      formulario.append(`jurados[${indice}][cargo]`, cargo)
+    })
+    formulario.append('archivo_propuesta', archivoPropuesta.value)
+    await api.post(
+      `/expedientes/${contexto.value.id}/designaciones-jurados/propuestas`,
+      formulario,
+    )
+    exito.value = 'La terna y su documento quedaron listos para completar la derivación.'
+    setTimeout(
+      () =>
+        router.push(
+          esUdi.value
+            ? { name: 'udi-revision', params: { id: contexto.value?.id } }
+            : { name: 'decanatura-asignacion' },
+        ),
+      900,
+    )
+  } catch (error: unknown) {
+    aviso.value = axios.isAxiosError(error)
+      ? error.response?.data?.message ?? 'No se pudo registrar la propuesta de jurados.'
+      : 'No se pudo registrar la propuesta de jurados.'
+  } finally {
+    guardando.value = false
+  }
 }
 
 onMounted(() => {
@@ -119,15 +195,16 @@ onMounted(() => {
 </script>
 
 <template>
+  <PlazosExpediente v-if="Number(route.params.id)" :expediente="Number(route.params.id)" />
   <div class="max-w-container-max-width mx-auto p-gutter pb-32">
     <div class="flex items-center gap-4 mb-8">
       <button type="button" class="w-10 h-10 rounded-full border border-outline-variant/30 flex items-center justify-center text-primary hover:bg-surface-container" @click="router.back()">
         <span class="material-symbols-outlined">arrow_back</span>
       </button>
       <div>
-        <h2 class="font-headline-md text-headline-md text-primary">Asignación Individual de Jurados</h2>
+        <h2 class="font-headline-md text-headline-md text-primary">Propuesta de Jurados</h2>
         <nav class="flex items-center gap-2 font-label-sm text-label-sm text-on-surface-variant">
-          <span>Decanatura</span><span class="material-symbols-outlined !text-sm">chevron_right</span>
+          <span>{{ esUdi ? 'UDI' : 'Decanatura' }}</span><span class="material-symbols-outlined !text-sm">chevron_right</span>
           <span class="text-primary font-bold">Asignación de Jurados</span>
         </nav>
       </div>
@@ -160,7 +237,7 @@ onMounted(() => {
             <span class="material-symbols-outlined text-secondary">person</span>
             <p class="font-body-md text-body-md font-bold text-on-surface">{{ contexto.tesista }} ({{ contexto.codigo }})</p>
           </div>
-          <p class="font-label-md text-label-md text-on-surface-variant ml-8">{{ contexto.escuela }}</p>
+          <p class="font-label-md text-label-md text-on-surface-variant ml-8">{{ contexto.escuela }}<span v-if="contexto.linea_investigacion"> · {{ contexto.linea_investigacion }}</span></p>
         </div>
         <div class="md:border-l border-outline-variant/20 md:pl-6">
           <label class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Asesor Actual</label>
@@ -192,6 +269,20 @@ onMounted(() => {
       </div>
     </div>
 
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 shadow-sm mb-6 p-card-padding">
+      <h3 class="font-headline-sm text-headline-sm text-primary mb-3">Documento de propuesta de jurados</h3>
+      <label class="flex items-center gap-3 rounded-xl border border-dashed border-outline-variant p-4 cursor-pointer">
+        <input
+          class="sr-only"
+          type="file"
+          accept="application/pdf,.pdf"
+          @change="archivoPropuesta = ($event.target as HTMLInputElement).files?.[0] ?? null"
+        />
+        <span class="material-symbols-outlined text-primary">upload_file</span>
+        <span>{{ archivoPropuesta?.name ?? 'Seleccionar documento PDF' }}</span>
+      </label>
+    </div>
+
     <div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 shadow-sm overflow-hidden" :class="{ 'opacity-60': cargando }">
       <div class="bg-surface-container-low px-card-padding py-3 flex justify-between items-center border-b border-outline-variant/30">
         <h3 class="font-headline-sm text-headline-sm text-primary">Docentes Disponibles</h3>
@@ -199,25 +290,28 @@ onMounted(() => {
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-left border-collapse">
-          <thead><tr class="bg-surface-container-low/50 border-b border-outline-variant/30"><th class="px-6 py-4 uppercase">Nombre y escuela</th><th class="px-6 py-4 uppercase text-center">Estado / carga</th><th class="px-6 py-4 uppercase">Definir cargo</th><th class="px-6 py-4 uppercase text-right">Acción</th></tr></thead>
+          <thead><tr class="bg-surface-container-low/50 border-b border-outline-variant/30"><th class="px-6 py-4 uppercase text-right">Acción</th><th class="px-6 py-4 uppercase">Nombre y escuela</th><th class="px-6 py-4 uppercase text-center">Estado / carga</th><th class="px-6 py-4 uppercase">Definir cargo</th></tr></thead>
           <tbody class="divide-y divide-outline-variant/20">
             <tr v-for="docente in docentesFiltrados" :key="docente.id" :class="docente.no_seleccionable ? 'bg-surface-container-high/20 opacity-60' : 'hover:bg-surface-container-low'">
-              <td class="px-6 py-4"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-full flex items-center justify-center font-bold bg-secondary-fixed text-on-secondary-fixed">{{ docente.iniciales }}</div><div><p class="font-bold">{{ docente.nombre }}</p><p class="text-xs text-on-surface-variant">{{ docente.escuela }} · {{ docente.area }}</p></div></div></td>
+              <td class="px-6 py-4 text-right"><input type="checkbox" :disabled="seleccionBloqueada(docente)" class="w-5 h-5 rounded" :checked="docente.id in seleccionados" :aria-label="`Seleccionar a ${docente.nombre}`" @change="cambiarSeleccion(docente, $event)"></td>
+              <td class="px-6 py-4"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-full flex items-center justify-center font-bold bg-secondary-fixed text-on-secondary-fixed">{{ docente.iniciales }}</div><div><p class="font-bold">{{ docente.nombre }}</p><p class="text-xs text-on-surface-variant">{{ docente.escuela }} · {{ docente.especialidades.join(', ') || docente.area }}</p><p v-if="docente.coincide_especialidad" class="text-xs font-bold text-secondary">Especialidad afín</p></div></div></td>
               <td class="px-6 py-4 text-center"><span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-surface-container text-on-surface-variant text-sm"><span class="status-dot" :class="docente.estado_carga === 'Disponible' ? 'bg-green-500' : docente.estado_carga === 'Moderado' ? 'bg-yellow-500' : 'bg-error'"></span>{{ docente.estado_carga === 'Asesor' ? 'Asesor del proyecto' : `${docente.estado_carga} (${docente.carga})` }}</span></td>
-              <td class="px-6 py-4"><select v-model="seleccionados[docente.id]" :disabled="docente.no_seleccionable || !(docente.id in seleccionados)" class="w-full bg-white border border-outline-variant rounded-lg text-sm"><option value="">Seleccionar cargo...</option><option v-for="rol in roles" :key="rol" :value="rol">{{ rol }}</option></select></td>
-              <td class="px-6 py-4 text-right"><input type="checkbox" :disabled="docente.no_seleccionable" class="w-5 h-5 rounded" :checked="docente.id in seleccionados" @change="(evento: Event) => alternarDocente(docente, (evento.target as HTMLInputElement).checked)"></td>
+              <td class="px-6 py-4"><select v-model="seleccionados[docente.id]" :disabled="docente.no_seleccionable || !(docente.id in seleccionados)" class="w-full bg-white border border-outline-variant rounded-lg text-sm"><option value="">Seleccionar cargo...</option><option v-for="rol in roles" :key="rol" :value="rol" :disabled="cargoOcupado(rol, docente.id)">{{ rol }}</option></select></td>
             </tr>
             <tr v-if="!cargando && docentesFiltrados.length === 0"><td colspan="4" class="px-6 py-8 text-center text-on-surface-variant">No se encontraron docentes con esos criterios.</td></tr>
             <tr v-if="cargando"><td colspan="4" class="px-6 py-8 text-center text-on-surface-variant">Cargando docentes...</td></tr>
           </tbody>
         </table>
       </div>
-      <div class="p-card-padding border-t border-outline-variant/30 bg-surface-container-lowest"><p class="text-on-surface-variant text-sm italic">Seleccione exactamente tres jurados con cargos distintos. El asesor y coasesor no pueden integrar la terna.</p></div>
+      <div class="p-card-padding border-t border-outline-variant/30 bg-surface-container-lowest"><p class="text-on-surface-variant text-sm italic">Seleccione exactamente tres jurados con cargos distintos. Dos deben ser de la escuela del tesista. El asesor y coasesor no pueden integrar la terna.</p><p v-if="aviso" class="mt-2 font-bold text-error">{{ aviso }}</p><p v-if="exito" class="mt-2 font-bold text-secondary">{{ exito }}</p></div>
     </div>
 
     <div class="fixed bottom-0 right-0 left-0 lg:left-sidebar-width bg-surface border-t border-outline-variant/30 p-3 sm:p-4 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] z-30">
       <div class="flex gap-4 items-center"><div class="flex -space-x-2"><div v-for="docente in docentesSeleccionados" :key="docente.id" class="w-8 h-8 rounded-full bg-secondary-container border-2 border-white flex items-center justify-center text-[10px] font-bold">{{ docente.iniciales }}</div><div v-if="cantidadSeleccionados < 3" class="w-8 h-8 rounded-full bg-surface-container-highest border-2 border-white flex items-center justify-center text-[10px] text-outline">?</div></div><p class="text-sm"><span class="text-primary font-bold">{{ cantidadSeleccionados }}</span> de {{ maxJurados }} jurados seleccionados</p></div>
-      <div class="flex gap-4"><button type="button" class="px-8 py-3 rounded-full hover:bg-surface-container" @click="seleccionados = {}; aviso = ''">Cancelar</button><button type="button" class="px-10 py-3 rounded-full bg-primary-container text-white shadow-lg flex items-center gap-2" @click="validarSeleccion"><span class="material-symbols-outlined !text-lg">check_circle</span>Validar selección</button></div>
+      <div class="flex flex-col gap-2">
+        <p v-if="aviso" role="alert" class="text-sm font-bold text-error">{{ aviso }}</p>
+        <div class="flex gap-4"><button type="button" :disabled="guardando" class="px-8 py-3 rounded-full hover:bg-surface-container disabled:opacity-60" @click="cancelar">Cancelar</button><button type="button" :disabled="guardando" class="px-10 py-3 rounded-full bg-primary-container text-white shadow-lg flex items-center gap-2 disabled:opacity-60" @click="validarSeleccion"><span class="material-symbols-outlined !text-lg">check_circle</span>{{ guardando ? 'Registrando...' : 'Registrar propuesta' }}</button></div>
+      </div>
     </div>
   </div>
 </template>

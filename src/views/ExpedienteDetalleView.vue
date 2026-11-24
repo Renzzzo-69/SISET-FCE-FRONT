@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import api, { descargarDocumentoPrivado } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import PlazosExpediente from '@/components/PlazosExpediente.vue'
 import type {
   CatalogosInformeTesis,
   EstadoExpedienteActual,
@@ -121,6 +122,17 @@ function nombreEtapa(etapa: EtapaExpedienteActual | null) {
 
 function nombreEstado(estado: EstadoExpedienteActual | null) {
   return estado?.nombre ?? 'No disponible'
+}
+
+function nombreAccion(accion: string) {
+  const nombres: Record<string, string> = {
+    resolucion_conformidad_emitida: 'Resolución de conformidad emitida',
+    resolucion_designacion_jurados_emitida: 'Resolución de designación de jurados emitida',
+    resolucion_aprobacion_proyecto_emitida: 'Resolución de aprobación del proyecto emitida',
+    resolucion_aprobacion_tesis_final_emitida: 'Resolución de aprobación de tesis final emitida',
+  }
+
+  return nombres[accion] ?? accion.replaceAll('_', ' ')
 }
 
 function fechaTexto(fecha: string | null) {
@@ -540,6 +552,7 @@ onMounted(async () => {
     <p v-else-if="detalle === null" class="status">El expediente no contiene información de detalle.</p>
 
     <template v-else>
+      <PlazosExpediente v-if="detalle" id="plazos" :key="detalle.informes.length" :expediente="detalle.id_expediente" />
       <p v-if="mensajeDescarga" class="error" role="alert">{{ mensajeDescarga }}</p>
 
       <div class="summary-grid">
@@ -726,7 +739,7 @@ onMounted(async () => {
         <ol v-if="historialOrdenado.length" class="timeline">
           <li v-for="evento in historialOrdenado" :key="evento.id_historial">
             <strong>{{ fechaTexto(evento.fecha_cambio) }}</strong>
-            <span>{{ evento.accion_realizada }}</span>
+            <span>{{ nombreAccion(evento.accion_realizada) }}</span>
             <p>
               Etapa: {{ nombreEtapa(evento.etapa_anterior) }} → {{ nombreEtapa(evento.etapa_nueva) }}
             </p>

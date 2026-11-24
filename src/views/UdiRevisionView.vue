@@ -5,26 +5,19 @@ import { useRoute, useRouter } from 'vue-router'
 
 import api, { descargarDocumentoPrivado } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { documentosSubsanadosUdi, progresoRevisionUdi } from '@/utils/udiExpedientes'
 import type {
-  EvaluarRequisitoPayload,
   EstadoExpedienteActual,
-  EtapaExpedienteActual,
   ExpedienteDetalle,
   ExpedienteDetalleResponse,
   InformeExpediente,
-  ObservacionDocumentaria,
   ParticipanteExpediente,
-  RegistrarObservacionPayload,
   RequisitoRevisionDocumentaria,
-  RevisarSubsanacionPayload,
   RevisionDocumentariaConsulta,
   RevisionDocumentariaResponse,
   ResultadoEvaluacionRequisito,
-  ResultadoRevisionSubsanacion,
-  SubsanacionDocumentaria,
 } from '@/types/api'
 
-type SeccionActiva = 'revision' | 'observaciones' | 'subsanaciones' | 'conformidad' | 'historial'
 type InformeConContexto = InformeExpediente & { resumen?: string | null }
 
 const route = useRoute()
@@ -33,75 +26,95 @@ const auth = useAuthStore()
 const detalle = ref<ExpedienteDetalle | null>(null)
 const revision = ref<RevisionDocumentariaConsulta | null>(null)
 const cargando = ref(true)
-const accionEnCurso = ref<'recepcion' | 'iniciar' | 'subsanacion' | 'conformidad' | 'derivacion' | null>(null)
+const accionEnCurso = ref<
+  'conformidad' | 'derivacion' | null
+>(null)
 const operacionEnCurso = ref<string | null>(null)
 const descargando = ref<string | null>(null)
 const porcentajeTurnitin = ref<number | null>(null)
 const actaConformidad = ref<File | null>(null)
+const informeTurnitinArchivo = ref<File | null>(null)
 const arrastrandoActa = ref(false)
 const errorActa = ref('')
 const mensajeError = ref('')
 const mensajeAccion = ref('')
 const mostrarConformidad = ref(false)
-const seccionActiva = ref<SeccionActiva>('revision')
-const confirmaciones = ref<Record<string, string>>({})
-const formulariosEvaluacion = ref<Record<number, { resultado: ResultadoEvaluacionRequisito | ''; comentario: string }>>({})
-const resultadosChecklist = ref<Record<number, ResultadoEvaluacionRequisito | null>>({})
-const formulariosObservacion = ref<Record<number, { detalle: string; es_subsanable: boolean }>>({})
+const formulariosEvaluacion = ref<
+  Record<number, { resultado: ResultadoEvaluacionRequisito | ''; comentario: string }>
+>({})
 const idExpediente = computed(() => Number(route.params.id))
-const estaGestionando = computed(() => accionEnCurso.value !== null || operacionEnCurso.value !== null)
-const puedeRecepcionar = computed(() => detalle.value?.estado_actual?.codigo === 'pendiente_derivacion')
-const puedeIniciar = computed(() => detalle.value?.estado_actual?.codigo === 'derivado_udi')
+const estaGestionando = computed(
+  () => accionEnCurso.value !== null || operacionEnCurso.value !== null,
+)
 const puedeEvaluar = computed(
   () =>
     detalle.value?.etapa_actual?.codigo === 'revision_requisitos_documentarios' &&
     detalle.value.estado_actual?.codigo === 'en_revision' &&
     revision.value?.revision != null,
 )
-const puedeRevisarSubsanaciones = computed(
-  () =>
-    detalle.value?.etapa_actual?.codigo === 'revision_requisitos_documentarios' &&
-    detalle.value.estado_actual?.codigo === 'en_revision' &&
-    revision.value?.revision != null,
+const requisitosActivos = computed(
+  () => revision.value?.revision?.requisitos.filter((requisito) => requisito.estado === 1) ?? [],
 )
-const puedeSolicitarSubsanacion = computed(
-  () =>
-    detalle.value?.etapa_actual?.codigo === 'revision_requisitos_documentarios' &&
-    detalle.value.estado_actual?.codigo === 'observado' &&
-    (revision.value?.revision?.requisitos.some((requisito) =>
-      requisito.evaluacion?.observaciones.some(
-        (observacion) => Boolean(observacion.es_subsanable) && observacion.estado === 'pendiente',
-      ),
-    ) ?? false),
-)
-const requisitosActivos = computed(() => revision.value?.revision?.requisitos.filter((requisito) => requisito.estado === 1) ?? [])
 const puedeDerivarDecanatura = computed(
   () =>
     detalle.value?.etapa_actual?.codigo === 'revision_requisitos_documentarios' &&
     detalle.value.estado_actual?.codigo === 'conforme' &&
     revision.value?.revision?.resultado_final === 'conforme' &&
-    revision.value?.revision?.fecha_cierre !== null,
+    revision.value?.revision?.fecha_cierre !== null &&
+    Boolean(revision.value?.documentos_derivacion.conformidad_tecnica) &&
+    Boolean(revision.value?.documentos_derivacion.informe_turnitin) &&
+    Boolean(revision.value?.documentos_derivacion.propuesta_jurados),
 )
 const informeContexto = computed<InformeConContexto | null>(() => {
-  const informes = detalle.value?.informes ?? []
-  return (informes.find((informe) => informe.es_tesis === 0) ?? informes[0] ?? null) as InformeConContexto | null
+  const informes = [...(detalle.value?.informes ?? [])]
+    .filter((informe) => informe.estado === 1)
+    .sort((a, b) => b.version - a.version)
+  return (informes.find((informe) => informe.es_tesis === 0) ??
+    informes[0] ??
+    null) as InformeConContexto | null
 })
-const tituloInforme = computed(() => informeContexto.value?.titulo || 'Sin informaci\u00f3n')
-const resumenInforme = computed(() => informeContexto.value?.resumen?.trim() || 'Sin informaci\u00f3n')
-const eventoRecepcion = computed(
-  () => detalle.value?.historial.find((evento) => evento.accion_realizada === 'expediente_recepcionado_udi') ?? null,
-)
-const fechaCierreRevision = computed(() => revision.value?.revision?.fecha_cierre ?? null)
 const fechaRegistroConformidad = new Date()
-const fechaEmision = new Intl.DateTimeFormat('es-PE', { dateStyle: 'short' }).format(fechaRegistroConformidad)
-const horaRegistro = new Intl.DateTimeFormat('es-PE', { timeStyle: 'short', hour12: false }).format(fechaRegistroConformidad)
+const fechaEmision = new Intl.DateTimeFormat('es-PE', { dateStyle: 'short' }).format(
+  fechaRegistroConformidad,
+)
+const horaRegistro = new Intl.DateTimeFormat('es-PE', { timeStyle: 'short', hour12: false }).format(
+  fechaRegistroConformidad,
+)
 const responsableTecnico = computed(() => auth.usuario?.correo_electronico ?? 'Usuario registrado')
-const turnitinActual = computed(() => porcentajeTurnitin.value ?? informeContexto.value?.turnitin ?? null)
-const puedeSiguienteEtapa = computed(
+const turnitinActual = computed(
+  () => porcentajeTurnitin.value ?? informeContexto.value?.turnitin ?? null,
+)
+const turnitinValido = computed(
+  () =>
+    turnitinActual.value !== null &&
+    Number.isInteger(turnitinActual.value) &&
+    turnitinActual.value >= 0 &&
+    turnitinActual.value <= 100,
+)
+const todosEvaluados = computed(
   () =>
     requisitosActivos.value.length > 0 &&
-    requisitosActivos.value.every((requisito) => resultadoChecklist(requisito) === 'conforme') &&
-    (turnitinActual.value === null || turnitinActual.value <= 50),
+    requisitosActivos.value.every((requisito) => resultadoChecklist(requisito) !== null),
+)
+const hayIncumplimientos = computed(() =>
+  requisitosActivos.value.some((requisito) => {
+    const resultado = resultadoChecklist(requisito)
+    return resultado === 'observado' || resultado === 'no_presentado'
+  }),
+)
+const requiereNotificarObservaciones = computed(
+  () =>
+    hayIncumplimientos.value ||
+    (turnitinValido.value && turnitinActual.value !== null && turnitinActual.value > 50),
+)
+const puedeSiguienteEtapa = computed(
+  () =>
+    todosEvaluados.value &&
+    !requiereNotificarObservaciones.value &&
+    turnitinValido.value,
+)
+const puedeNotificarObservaciones = computed(
+  () => todosEvaluados.value && requiereNotificarObservaciones.value && turnitinValido.value,
 )
 const puedeDeclararConformidad = computed(
   () =>
@@ -112,17 +125,32 @@ const puedeDeclararConformidad = computed(
 )
 const avanceRevision = computed(() => {
   const requisitos = requisitosActivos.value
-  const evaluados = requisitos.filter((requisito) => resultadoChecklist(requisito) === 'conforme').length
+  const evaluados = requisitos.filter((requisito) => resultadoChecklist(requisito) !== null).length
   const porcentaje = requisitos.length ? Math.round((evaluados / requisitos.length) * 100) : null
 
   return { evaluados, total: requisitos.length, porcentaje }
 })
-const observaciones = computed(() =>
-  revision.value?.revision?.requisitos.flatMap((requisito) =>
-    (requisito.evaluacion?.observaciones ?? []).map((observacion) => ({ requisito, observacion })),
-  ) ?? [],
+const observaciones = computed(
+  () =>
+    revision.value?.revision?.requisitos.flatMap((requisito) =>
+      (requisito.evaluacion?.observaciones ?? []).map((observacion) => ({
+        requisito,
+        observacion,
+      })),
+    ) ?? [],
 )
-
+const adjuntosSubsanados = computed(() => documentosSubsanadosUdi(detalle.value, revision.value))
+const versionInforme = computed(() => Math.max(
+  informeContexto.value?.version ?? 1,
+  ...adjuntosSubsanados.value
+    .filter((item) => item.nombre === (informeContexto.value?.es_tesis ? 'Tesis' : 'Proyecto de tesis'))
+    .map((item) => item.version),
+))
+const revisandoSubsanaciones = computed(() =>
+  observaciones.value.some(({ observacion }) =>
+    observacion.subsanaciones.some((subsanacion) => subsanacion.resultado === null),
+  ),
+)
 const ETIQUETAS_ESTADO: Record<string, string> = {
   pendiente_derivacion: 'Pendiente de derivaci\u00f3n',
   derivado_udi: 'Derivado a UDI',
@@ -141,22 +169,10 @@ function nombreParticipante(participante: ParticipanteExpediente | null) {
     : 'No registrado'
 }
 
-function nombreEtapa(etapa: EtapaExpedienteActual | null) {
-  return etapa?.nombre ?? 'No disponible'
-}
-
 function nombreEstado(estado: EstadoExpedienteActual | null) {
   if (!estado) return 'Sin informaci\u00f3n'
 
   return ETIQUETAS_ESTADO[estado.codigo] ?? estado.nombre ?? 'Sin informaci\u00f3n'
-}
-
-function claseEstado(codigo: string | undefined) {
-  if (codigo === 'conforme') return 'is-success'
-  if (codigo === 'observado') return 'is-error'
-  if (codigo === 'pendiente_derivacion' || codigo === 'pendiente_subsanacion') return 'is-warning'
-  if (codigo === 'derivado_udi' || codigo === 'en_revision' || codigo === 'derivado_decanatura') return 'is-primary'
-  return 'is-muted'
 }
 
 function etiquetaResultado(resultado: ResultadoEvaluacionRequisito | null | undefined) {
@@ -166,13 +182,21 @@ function etiquetaResultado(resultado: ResultadoEvaluacionRequisito | null | unde
   return 'Pendiente'
 }
 
+function estaEnSubsanacion(requisito: RequisitoRevisionDocumentaria) {
+  return requisito.evaluacion?.observaciones.some(
+    (observacion) => observacion.estado === 'en_subsanacion',
+  ) ?? false
+}
+
 function fechaTexto(fecha: string | null) {
   if (fecha === null) return 'Sin fecha'
 
   const fechaLocal = new Date(fecha)
   return Number.isNaN(fechaLocal.getTime())
     ? fecha
-    : new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium', timeStyle: 'short' }).format(fechaLocal)
+    : new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium', timeStyle: 'short' }).format(
+        fechaLocal,
+      )
 }
 
 function mensajeDesdeError(error: unknown, predeterminado: string) {
@@ -186,7 +210,10 @@ function mensajeDesdeError(error: unknown, predeterminado: string) {
     case 404:
       return 'El expediente o la revisión solicitada ya no está disponible.'
     case 409:
-      return error.response.data?.message ?? 'La acción no está permitida para el estado actual del expediente.'
+      return (
+        error.response.data?.message ??
+        'La acción no está permitida para el estado actual del expediente.'
+      )
     case 422:
       return error.response.data?.message ?? 'La solicitud contiene datos no válidos.'
     default:
@@ -206,26 +233,16 @@ function sincronizarFormularios(datos: RevisionDocumentariaConsulta) {
       },
     ]),
   )
-  resultadosChecklist.value = Object.fromEntries(
-    requisitos.map((requisito) => [requisito.id_requisito_documentario, requisito.evaluacion?.resultado ?? null]),
-  )
-  formulariosObservacion.value = Object.fromEntries(
-    requisitos
-      .filter((requisito) => requisito.evaluacion !== null)
-      .map((requisito) => [requisito.evaluacion!.id_evaluacion_requisito, { detalle: '', es_subsanable: true }]),
-  )
 }
 
 function formularioEvaluacion(idRequisito: number) {
   return (formulariosEvaluacion.value[idRequisito] ??= { resultado: '', comentario: '' })
 }
 
-function formularioObservacion(idEvaluacion: number) {
-  return (formulariosObservacion.value[idEvaluacion] ??= { detalle: '', es_subsanable: true })
-}
-
 function resultadoChecklist(requisito: RequisitoRevisionDocumentaria) {
-  return resultadosChecklist.value[requisito.id_requisito_documentario] ?? requisito.evaluacion?.resultado ?? null
+  return formularioEvaluacion(requisito.id_requisito_documentario).resultado ||
+    requisito.evaluacion?.resultado ||
+    null
 }
 
 function asignarActaConformidad(archivo: File | null) {
@@ -244,18 +261,19 @@ function seleccionarActaConformidad(event: Event) {
   asignarActaConformidad((event.target as HTMLInputElement).files?.[0] ?? null)
 }
 
+function seleccionarInformeTurnitin(event: Event) {
+  const archivo = (event.target as HTMLInputElement).files?.[0] ?? null
+  if (!archivo) return
+  if (archivo.type !== 'application/pdf' && !archivo.name.toLowerCase().endsWith('.pdf')) {
+    mensajeError.value = 'El informe de Turnitin debe ser un archivo PDF.'
+    return
+  }
+  informeTurnitinArchivo.value = archivo
+}
+
 function soltarActaConformidad(event: DragEvent) {
   arrastrandoActa.value = false
   asignarActaConformidad(event.dataTransfer?.files[0] ?? null)
-}
-
-function puedeRegistrarObservacion(requisito: RequisitoRevisionDocumentaria) {
-  const resultado = requisito.evaluacion?.resultado
-  return puedeEvaluar.value && (resultado === 'observado' || resultado === 'no_presentado')
-}
-
-function puedeRevisarSubsanacion(observacion: ObservacionDocumentaria, subsanacion: SubsanacionDocumentaria) {
-  return puedeRevisarSubsanaciones.value && Boolean(observacion.es_subsanable) && subsanacion.resultado === null
 }
 
 async function cargarInformacion() {
@@ -272,10 +290,30 @@ async function cargarInformacion() {
   cargando.value = true
 
   try {
-    const [detalleRespuesta, revisionRespuesta] = await Promise.all([
-      api.get<ExpedienteDetalleResponse>(`/expedientes/${idExpediente.value}`),
-      api.get<RevisionDocumentariaResponse>(`/expedientes/${idExpediente.value}/revision-documentaria`),
-    ])
+    let detalleRespuesta = await api.get<ExpedienteDetalleResponse>(`/expedientes/${idExpediente.value}`)
+    const estado = detalleRespuesta.data.data?.estado_actual?.codigo
+    if (detalleRespuesta.data.data && (
+      progresoRevisionUdi(detalleRespuesta.data.data).revisado ||
+      !['derivado_udi', 'en_revision', 'conforme'].includes(estado ?? '') ||
+      route.query.seccion === 'subsanaciones'
+    )) {
+      await router.replace({
+        name: 'udi-expediente',
+        params: { id: idExpediente.value },
+        ...(route.query.seccion === 'subsanaciones' ? { query: { seccion: 'subsanaciones' } } : {}),
+      })
+      return
+    }
+    if (detalleRespuesta.data.data?.estado_actual?.codigo === 'derivado_udi') {
+      const { data } = await api.post<{ message?: string }>(
+        `/expedientes/${idExpediente.value}/revision-documentaria/iniciar`,
+      )
+      mensajeAccion.value = data.message ?? 'Revisión documentaria iniciada.'
+      detalleRespuesta = await api.get<ExpedienteDetalleResponse>(`/expedientes/${idExpediente.value}`)
+    }
+    const revisionRespuesta = await api.get<RevisionDocumentariaResponse>(
+      `/expedientes/${idExpediente.value}/revision-documentaria`,
+    )
     detalle.value = detalleRespuesta.data.data ?? null
     revision.value = revisionRespuesta.data.data
     porcentajeTurnitin.value = informeContexto.value?.turnitin ?? null
@@ -287,153 +325,76 @@ async function cargarInformacion() {
   }
 }
 
-async function guardarEvaluacion(requisito: RequisitoRevisionDocumentaria) {
-  const formulario = formulariosEvaluacion.value[requisito.id_requisito_documentario]
+async function enviarEvaluacionCompleta(notificarObservaciones: boolean) {
+  const informe = informeContexto.value
 
-  if (formulario?.resultado) {
-    resultadosChecklist.value[requisito.id_requisito_documentario] = formulario.resultado
-    return
-  }
-
-  if (!formulario || formulario.resultado === '') {
-    mensajeError.value = 'Seleccione un resultado para evaluar el requisito.'
-    return
-  }
-
-  const clave = `evaluacion-${requisito.id_requisito_documentario}`
-  operacionEnCurso.value = clave
-  mensajeError.value = ''
-
-  try {
-    const payload: EvaluarRequisitoPayload = {
-      resultado: formulario.resultado,
-      comentario: formulario.comentario.trim() || null,
-    }
-    await api.put(
-      `/expedientes/${idExpediente.value}/revision-documentaria/requisitos/${requisito.id_requisito_documentario}`,
-      payload,
-    )
-    confirmaciones.value[clave] = 'Evaluación guardada correctamente.'
-    await cargarInformacion()
-  } catch (error) {
-    mensajeError.value = mensajeDesdeError(error, 'No se pudo guardar la evaluación del requisito.')
-  } finally {
-    operacionEnCurso.value = null
-  }
-}
-
-async function registrarObservacion(requisito: RequisitoRevisionDocumentaria) {
-  if (estaGestionando.value) return
-
-  const evaluacion = requisito.evaluacion
-  if (!evaluacion) return
-
-  const formulario = formulariosObservacion.value[evaluacion.id_evaluacion_requisito]
-
-  if (!formulario || formulario.detalle.trim() === '') {
-    mensajeError.value = 'Ingrese el detalle de la observación.'
-    return
-  }
-
-  const clave = `observacion-${evaluacion.id_evaluacion_requisito}`
-  operacionEnCurso.value = clave
-  mensajeError.value = ''
-
-  try {
-    const payload: RegistrarObservacionPayload = {
-      detalle: formulario.detalle.trim(),
-      es_subsanable: formulario.es_subsanable,
-    }
-    await api.post(
-      `/expedientes/${idExpediente.value}/revision-documentaria/evaluaciones/${evaluacion.id_evaluacion_requisito}/observaciones`,
-      payload,
-    )
-    confirmaciones.value[clave] = 'Observación registrada correctamente.'
-    await cargarInformacion()
-  } catch (error) {
-    mensajeError.value = mensajeDesdeError(error, 'No se pudo registrar la observación.')
-  } finally {
-    operacionEnCurso.value = null
-  }
-}
-
-async function revisarSubsanacion(
-  observacion: ObservacionDocumentaria,
-  subsanacion: SubsanacionDocumentaria,
-  resultado: ResultadoRevisionSubsanacion,
-) {
   if (
+    !informe ||
     !Number.isInteger(idExpediente.value) ||
     idExpediente.value < 1 ||
-    estaGestionando.value ||
-    !puedeRevisarSubsanacion(observacion, subsanacion)
+    estaGestionando.value
   ) {
     return
   }
 
-  const clave = `subsanacion-${subsanacion.id_subsanacion_documentaria}`
-  operacionEnCurso.value = clave
+  const puedeEnviar = notificarObservaciones
+    ? puedeNotificarObservaciones.value
+    : puedeSiguienteEtapa.value
+  if (!puedeEnviar || turnitinActual.value === null) return
+
+  operacionEnCurso.value = 'evaluacion-completa'
   mensajeError.value = ''
+  mensajeAccion.value = ''
 
   try {
-    const payload: RevisarSubsanacionPayload = { resultado }
-    await api.put(
-      `/expedientes/${idExpediente.value}/revision-documentaria/subsanaciones/${subsanacion.id_subsanacion_documentaria}`,
-      payload,
+    await api.post(
+      `/expedientes/${idExpediente.value}/revision-documentaria/evaluacion-completa`,
+      {
+        id_informe: informe.id_informe_proyecto_tesis,
+        turnitin: turnitinActual.value,
+        notificar_observaciones: notificarObservaciones,
+        evaluaciones: requisitosActivos.value.map((requisito) => {
+          const formulario = formularioEvaluacion(requisito.id_requisito_documentario)
+          return {
+            id_requisito_documentario: requisito.id_requisito_documentario,
+            resultado: formulario.resultado,
+            comentario:
+              formulario.resultado === 'conforme' ? null : formulario.comentario.trim() || null,
+          }
+        }),
+      },
     )
-    confirmaciones.value[clave] =
-      resultado === 'aceptada'
-        ? 'Subsanación aceptada. La observación fue cerrada.'
-        : 'Subsanación rechazada. La observación quedó pendiente; solicite una nueva subsanación para habilitar otro intento.'
-    await cargarInformacion()
+
+    if (notificarObservaciones) {
+      await router.replace({ name: 'udi-expediente', params: { id: idExpediente.value } })
+    } else {
+      await cargarInformacion()
+      mostrarConformidad.value = true
+    }
   } catch (error) {
-    mensajeError.value = mensajeDesdeError(error, 'No se pudo revisar la subsanación.')
+    mensajeError.value = mensajeDesdeError(
+      error,
+      notificarObservaciones
+        ? 'No se pudieron notificar las observaciones.'
+        : 'No se pudo guardar la revisión.',
+    )
   } finally {
     operacionEnCurso.value = null
   }
 }
 
-async function ejecutarAccion(accion: 'recepcion' | 'iniciar') {
-  if (!Number.isInteger(idExpediente.value) || idExpediente.value < 1 || estaGestionando.value) return
-
-  accionEnCurso.value = accion
-  mensajeError.value = ''
-  mensajeAccion.value = ''
-
-  try {
-    const { data } = await api.post<{ message?: string }>(
-      `/expedientes/${idExpediente.value}/revision-documentaria/${accion}`,
-    )
-    mensajeAccion.value =
-      data.message ?? (accion === 'recepcion' ? 'Expediente recibido por UDI.' : 'Revisión documentaria iniciada.')
-    await cargarInformacion()
-  } catch (error) {
-    mensajeError.value = mensajeDesdeError(error, 'No se pudo completar la acción solicitada.')
-  } finally {
-    accionEnCurso.value = null
-  }
-}
-
-async function solicitarSubsanacion() {
-  if (!Number.isInteger(idExpediente.value) || idExpediente.value < 1 || estaGestionando.value) return
-
-  accionEnCurso.value = 'subsanacion'
-  mensajeError.value = ''
-  mensajeAccion.value = ''
-
-  try {
-    await api.post(`/expedientes/${idExpediente.value}/revision-documentaria/pendiente-subsanacion`)
-    mensajeAccion.value = 'Expediente marcado como pendiente de subsanación.'
-    await cargarInformacion()
-  } catch (error) {
-    mensajeError.value = mensajeDesdeError(error, 'No se pudo solicitar la subsanación.')
-  } finally {
-    accionEnCurso.value = null
-  }
-}
-
 async function declararConformidad() {
-  if (!Number.isInteger(idExpediente.value) || idExpediente.value < 1 || estaGestionando.value || !puedeDeclararConformidad.value) {
+  if (
+    !Number.isInteger(idExpediente.value) ||
+    idExpediente.value < 1 ||
+    estaGestionando.value ||
+    !puedeDeclararConformidad.value
+  ) {
+    return
+  }
+
+  if (!actaConformidad.value || !informeTurnitinArchivo.value) {
+    errorActa.value = 'Adjunte la conformidad técnica y el informe de Turnitin.'
     return
   }
 
@@ -444,7 +405,13 @@ async function declararConformidad() {
   mensajeAccion.value = ''
 
   try {
-    await api.post(`/expedientes/${idExpediente.value}/revision-documentaria/conformidad`)
+    const formulario = new FormData()
+    formulario.append('acta_conformidad', actaConformidad.value)
+    formulario.append('informe_turnitin', informeTurnitinArchivo.value)
+    await api.post(
+      `/expedientes/${idExpediente.value}/revision-documentaria/conformidad`,
+      formulario,
+    )
     mensajeAccion.value = 'Conformidad técnica declarada.'
     await cargarInformacion()
   } catch (error) {
@@ -455,7 +422,12 @@ async function declararConformidad() {
 }
 
 async function derivarDecanatura() {
-  if (!Number.isInteger(idExpediente.value) || idExpediente.value < 1 || estaGestionando.value || !puedeDerivarDecanatura.value) {
+  if (
+    !Number.isInteger(idExpediente.value) ||
+    idExpediente.value < 1 ||
+    estaGestionando.value ||
+    !puedeDerivarDecanatura.value
+  ) {
     return
   }
 
@@ -497,17 +469,26 @@ onMounted(cargarInformacion)
     <header class="revision-heading">
       <div>
         <p class="eyebrow">Unidad de Investigación</p>
-        <h1 id="revision-title">Revisión documentaria</h1>
-        <p class="intro">Evalúe la documentación presentada y gestione las observaciones del expediente.</p>
+        <h1 id="revision-title">Revisi?n documentaria</h1>
+        <p class="intro">Eval?e los requisitos y registre las observaciones del expediente.</p>
       </div>
       <div class="heading-actions">
-        <button type="button" class="outline-button" :disabled="cargando" @click="cargarInformacion">
+        <button
+          type="button"
+          class="outline-button"
+          :disabled="cargando"
+          @click="cargarInformacion"
+        >
           <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
           {{ cargando ? 'Actualizando…' : 'Actualizar' }}
         </button>
-        <button type="button" class="outline-button" @click="router.push({ name: 'udi-expedientes' })">
+        <button
+          type="button"
+          class="outline-button"
+          @click="router.push({ name: 'udi-expediente', params: { id: idExpediente } })"
+        >
           <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
-          Volver a la bandeja
+          Volver al expediente
         </button>
       </div>
     </header>
@@ -539,7 +520,9 @@ onMounted(cargarInformacion)
 
     <template v-else>
       <template v-if="mostrarConformidad || detalle.estado_actual?.codigo === 'conforme'">
-        <p v-if="mensajeAccion" class="message success-message" role="status">{{ mensajeAccion }}</p>
+        <p v-if="mensajeAccion" class="message success-message" role="status">
+          {{ mensajeAccion }}
+        </p>
 
         <section class="conformity-view conformity-page" aria-labelledby="conformity-title">
           <nav class="conformity-breadcrumb" aria-label="Ubicaci&#243;n de la revisi&#243;n">
@@ -559,22 +542,75 @@ onMounted(cargarInformacion)
                 </header>
                 <div class="table-wrapper">
                   <table>
-                    <thead><tr><th>Requisito</th><th>Estado</th><th>Observaciones</th></tr></thead>
+                    <thead>
+                      <tr>
+                        <th>Requisito</th>
+                        <th>Estado</th>
+                        <th>Observaciones</th>
+                      </tr>
+                    </thead>
                     <tbody>
-                      <tr v-for="requisito in revision?.revision?.requisitos ?? []" :key="requisito.id_requisito_documentario">
-                        <td><strong>{{ requisito.nombre }}</strong><span>{{ requisito.codigo }}</span></td>
-                        <td><span class="evaluation-badge" :class="`is-${resultadoChecklist(requisito) ?? 'pending'}`"><span class="material-symbols-outlined" aria-hidden="true">{{ resultadoChecklist(requisito) === 'conforme' ? 'check_circle' : resultadoChecklist(requisito) === 'observado' ? 'error' : 'pending' }}</span>{{ etiquetaResultado(resultadoChecklist(requisito)) }}</span></td>
+                      <tr
+                        v-for="requisito in revision?.revision?.requisitos ?? []"
+                        :key="requisito.id_requisito_documentario"
+                      >
                         <td>
-                          <ul v-if="requisito.evaluacion?.observaciones.length" class="conformity-observations">
-                            <li v-for="observacion in requisito.evaluacion.observaciones" :key="observacion.id_observacion_documentaria">{{ observacion.detalle }}</li>
+                          <strong>{{ requisito.nombre }}</strong
+                          ><span>{{ requisito.codigo }}</span>
+                        </td>
+                        <td>
+                          <span
+                            class="evaluation-badge"
+                            :class="`is-${resultadoChecklist(requisito) ?? 'pending'}`"
+                            ><span class="material-symbols-outlined" aria-hidden="true">{{
+                              resultadoChecklist(requisito) === 'conforme'
+                                ? 'check_circle'
+                                : resultadoChecklist(requisito) === 'observado'
+                                  ? 'error'
+                                  : 'pending'
+                            }}</span
+                            >{{ etiquetaResultado(resultadoChecklist(requisito)) }}</span
+                          >
+                        </td>
+                        <td>
+                          <ul
+                            v-if="requisito.evaluacion?.observaciones.length"
+                            class="conformity-observations"
+                          >
+                            <li
+                              v-for="observacion in requisito.evaluacion.observaciones"
+                              :key="observacion.id_observacion_documentaria"
+                            >
+                              {{ observacion.detalle }}
+                            </li>
                           </ul>
                           <span v-else>Sin observaciones pendientes</span>
                         </td>
                       </tr>
                       <tr>
-                        <td><strong>Informe de similitud (Turnitin)</strong><span>{{ informeContexto ? `${informeContexto.es_tesis ? 'Tesis final' : 'Proyecto'} · Versi\u00f3n ${informeContexto.version}` : 'Sin informe registrado' }}</span></td>
-                        <td><span class="evaluation-badge" :class="turnitinActual === null ? 'is-pending' : 'is-conforme'"><span class="material-symbols-outlined" aria-hidden="true">{{ turnitinActual === null ? 'pending' : 'check_circle' }}</span>{{ turnitinActual === null ? 'Pendiente' : `${turnitinActual}%` }}</span></td>
-                        <td>{{ turnitinActual === null ? 'Sin registrar' : 'Porcentaje registrado' }}</td>
+                        <td>
+                          <strong>Informe de similitud (Turnitin)</strong
+                          ><span>{{
+                            informeContexto
+                              ? `${informeContexto.es_tesis ? 'Tesis final' : 'Proyecto'} · Versi\u00f3n ${versionInforme}`
+                              : 'Sin informe registrado'
+                          }}</span>
+                        </td>
+                        <td>
+                          <span
+                            class="evaluation-badge"
+                            :class="turnitinActual === null ? 'is-pending' : 'is-conforme'"
+                            ><span class="material-symbols-outlined" aria-hidden="true">{{
+                              turnitinActual === null ? 'pending' : 'check_circle'
+                            }}</span
+                            >{{
+                              turnitinActual === null ? 'Pendiente' : `${turnitinActual}%`
+                            }}</span
+                          >
+                        </td>
+                        <td>
+                          {{ turnitinActual === null ? 'Sin registrar' : 'Porcentaje registrado' }}
+                        </td>
                       </tr>
                     </tbody>
                   </table>
@@ -585,7 +621,13 @@ onMounted(cargarInformacion)
                 <span class="material-symbols-outlined" aria-hidden="true">verified</span>
                 <div>
                   <h2>Estado de Documentaci&#243;n</h2>
-                  <p>{{ detalle.estado_actual?.codigo === 'conforme' ? 'La revisi&#243;n documentaria fue cerrada como conforme. No existen bloqueos t&#233;cnicos pendientes.' : 'Todos los requisitos activos est&#225;n conformes y no existen observaciones abiertas.' }}</p>
+                  <p>
+                    {{
+                      detalle.estado_actual?.codigo === 'conforme'
+                        ? 'La revisi&#243;n documentaria fue cerrada como conforme. No existen bloqueos t&#233;cnicos pendientes.'
+                        : 'Todos los requisitos activos est&#225;n conformes y no existen observaciones abiertas.'
+                    }}
+                  </p>
                 </div>
               </section>
             </div>
@@ -595,48 +637,195 @@ onMounted(cargarInformacion)
               <form @submit.prevent>
                 <label>
                   C&#243;digo de Conformidad
-                  <span class="input-with-icon"><span class="material-symbols-outlined" aria-hidden="true">tag</span><input value="Pendiente de implementaci&#243;n" disabled></span>
+                  <span class="input-with-icon"
+                    ><span class="material-symbols-outlined" aria-hidden="true">tag</span
+                    ><input value="Pendiente de implementaci&#243;n" disabled
+                  /></span>
                 </label>
                 <div class="conformity-dates">
-                  <label>Fecha de Emisi&#243;n<input type="text" :value="fechaEmision" disabled></label>
-                  <label>Hora Registro<input type="text" :value="horaRegistro" disabled></label>
+                  <label
+                    >Fecha de Emisi&#243;n<input type="text" :value="fechaEmision" disabled
+                  /></label>
+                  <label>Hora Registro<input type="text" :value="horaRegistro" disabled /></label>
                 </div>
                 <label>
                   Responsable T&#233;cnico
-                  <select disabled><option>{{ responsableTecnico }}</option></select>
+                  <select disabled>
+                    <option>{{ responsableTecnico }}</option>
+                  </select>
                 </label>
-                <div class="acta-field">
+                <div v-if="puedeDeclararConformidad" class="acta-field">
                   <span>Acta de conformidad t&#233;cnica (PDF)</span>
-                  <label class="acta-dropzone" :class="{ 'is-dragging': arrastrandoActa }" @dragover.prevent="arrastrandoActa = true" @dragleave.prevent="arrastrandoActa = false" @drop.prevent="soltarActaConformidad">
-                    <input class="sr-only" type="file" accept="application/pdf,.pdf" @change="seleccionarActaConformidad">
+                  <label
+                    class="acta-dropzone"
+                    :class="{ 'is-dragging': arrastrandoActa }"
+                    @dragover.prevent="arrastrandoActa = true"
+                    @dragleave.prevent="arrastrandoActa = false"
+                    @drop.prevent="soltarActaConformidad"
+                  >
+                    <input
+                      class="sr-only"
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      @change="seleccionarActaConformidad"
+                    />
                     <span class="material-symbols-outlined" aria-hidden="true">upload_file</span>
-                    <strong>{{ actaConformidad ? 'Acta seleccionada' : 'Arrastra aqu&#237; el documento' }}</strong>
-                    <small>{{ actaConformidad ? 'Archivo listo para la conformidad t&#233;cnica.' : 'O haz clic para seleccionar un PDF.' }}</small>
-                    <span v-if="actaConformidad" class="acta-file-chip"><span class="material-symbols-outlined" aria-hidden="true">attach_file</span>{{ actaConformidad.name }}</span>
+                    <strong>{{
+                      actaConformidad ? 'Acta seleccionada' : 'Arrastra aqu&#237; el documento'
+                    }}</strong>
+                    <small>{{
+                      actaConformidad
+                        ? 'Archivo listo para la conformidad t&#233;cnica.'
+                        : 'O haz clic para seleccionar un PDF.'
+                    }}</small>
+                    <span v-if="actaConformidad" class="acta-file-chip"
+                      ><span class="material-symbols-outlined" aria-hidden="true">attach_file</span
+                      >{{ actaConformidad.name }}</span
+                    >
                   </label>
                   <small v-if="errorActa" class="acta-error">{{ errorActa }}</small>
                 </div>
-                <button v-if="puedeDeclararConformidad" type="button" class="conformity-primary-action" :disabled="estaGestionando" @click="declararConformidad"><span class="material-symbols-outlined" aria-hidden="true">verified_user</span>{{ accionEnCurso === 'conformidad' ? 'Declarando...' : 'Emitir conformidad t&#233;cnica' }}</button>
-                <button v-else-if="puedeDerivarDecanatura" type="button" class="conformity-primary-action" :disabled="estaGestionando" @click="derivarDecanatura"><span class="material-symbols-outlined" aria-hidden="true">forward_to_inbox</span>{{ accionEnCurso === 'derivacion' ? 'Derivando...' : 'Derivar a Decanatura' }}</button>
-                <button v-else type="button" class="conformity-primary-action" disabled><span class="material-symbols-outlined" aria-hidden="true">verified_user</span>Emitir conformidad t&#233;cnica</button>
+                <div v-if="puedeDeclararConformidad" class="acta-field">
+                  <span>Informe de Turnitin (PDF)</span>
+                  <label class="acta-dropzone">
+                    <input
+                      class="sr-only"
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      @change="seleccionarInformeTurnitin"
+                    />
+                    <span class="material-symbols-outlined" aria-hidden="true">plagiarism</span>
+                    <strong>{{
+                      informeTurnitinArchivo ? 'Informe seleccionado' : 'Selecciona el informe'
+                    }}</strong>
+                    <small>Documento que sustenta el porcentaje registrado.</small>
+                    <span v-if="informeTurnitinArchivo" class="acta-file-chip"
+                      ><span class="material-symbols-outlined" aria-hidden="true">attach_file</span
+                      >{{ informeTurnitinArchivo.name }}</span
+                    >
+                  </label>
+                </div>
+                <div
+                  v-if="detalle.estado_actual?.codigo === 'conforme'"
+                  class="derivation-documents"
+                >
+                  <p class="eyebrow">Paquete para Decanatura</p>
+                  <button
+                    v-for="documento in [
+                      {
+                        clave: 'conformidad',
+                        nombre: 'Conformidad técnica',
+                        ruta: revision?.documentos_derivacion.conformidad_tecnica,
+                      },
+                      {
+                        clave: 'turnitin',
+                        nombre: 'Informe de Turnitin',
+                        ruta: revision?.documentos_derivacion.informe_turnitin,
+                      },
+                      {
+                        clave: 'propuesta',
+                        nombre: 'Propuesta de jurados',
+                        ruta: revision?.documentos_derivacion.propuesta_jurados,
+                      },
+                    ]"
+                    :key="documento.clave"
+                    type="button"
+                    class="derivation-document-row"
+                    :disabled="!documento.ruta"
+                    @click="
+                      documento.ruta &&
+                      descargarDocumento(documento.ruta, documento.clave, documento.clave)
+                    "
+                  >
+                    <span class="material-symbols-outlined" aria-hidden="true">{{
+                      documento.ruta ? 'check_circle' : 'pending'
+                    }}</span>
+                    <strong>{{ documento.nombre }}</strong>
+                    <small>{{ documento.ruta ? 'Listo' : 'Pendiente' }}</small>
+                  </button>
+                </div>
+                <button
+                  v-if="puedeDeclararConformidad"
+                  type="button"
+                  class="conformity-primary-action"
+                  :disabled="estaGestionando || !actaConformidad || !informeTurnitinArchivo"
+                  @click="declararConformidad"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">verified_user</span
+                  >{{
+                    accionEnCurso === 'conformidad'
+                      ? 'Declarando...'
+                      : 'Emitir conformidad t&#233;cnica'
+                  }}
+                </button>
+                <button
+                  v-else-if="
+                    detalle.estado_actual?.codigo === 'conforme' &&
+                    !revision?.documentos_derivacion.propuesta_jurados
+                  "
+                  type="button"
+                  class="conformity-primary-action"
+                  @click="
+                    router.push({
+                      name: 'udi-jurados-propuesta',
+                      params: { id: detalle.id_expediente },
+                    })
+                  "
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">group_add</span>
+                  Registrar propuesta de jurados
+                </button>
+                <button
+                  v-else-if="puedeDerivarDecanatura"
+                  type="button"
+                  class="conformity-primary-action"
+                  @click="router.push({ name: 'udi-jurados' })"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">inventory_2</span>
+                  Ver expediente listo para derivar
+                </button>
+                <button v-else type="button" class="conformity-primary-action" disabled>
+                  <span class="material-symbols-outlined" aria-hidden="true">verified_user</span
+                  >Emitir conformidad t&#233;cnica
+                </button>
               </form>
             </aside>
           </div>
         </section>
       </template>
 
-      <template v-else-if="detalle.estado_actual?.codigo === 'en_revision'">
-        <p v-if="mensajeAccion" class="message success-message" role="status">{{ mensajeAccion }}</p>
+      <template
+        v-else-if="
+          detalle.estado_actual?.codigo === 'en_revision'
+        "
+      >
+        <p v-if="mensajeAccion" class="message success-message" role="status">
+          {{ mensajeAccion }}
+        </p>
 
         <section class="stitch-review" aria-labelledby="revision-module-title">
           <header class="stitch-review-header">
             <div>
-              <p class="stitch-breadcrumb">Revisi&#243;n en curso <span aria-hidden="true">›</span> Momento {{ revision?.revision?.numero_ronda ?? 1 }}: {{ informeContexto?.es_tesis ? 'Tesis' : 'Proyecto' }}</p>
-              <h2 id="revision-module-title">M&#243;dulo de Revisi&#243;n y Observaciones</h2>
+              <p class="stitch-breadcrumb">
+                {{ revisandoSubsanaciones ? 'Subsanación recibida' : 'Revisión en curso' }}
+                <span aria-hidden="true">›</span> Momento
+                {{ revision?.revision?.numero_ronda ?? 1 }}:
+                {{ informeContexto?.es_tesis ? 'Tesis' : 'Proyecto' }}
+              </p>
+              <h2 id="revision-module-title">
+                {{
+                  revisandoSubsanaciones
+                    ? 'Revisión de documentos corregidos'
+                    : 'Módulo de Revisión y Observaciones'
+                }}
+              </h2>
             </div>
             <div class="stitch-expediente-selector" aria-label="Expediente en revisi&#243;n">
               <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
-              <span><strong>{{ detalle.cod_expediente }}</strong><small>{{ nombreParticipante(detalle.tesista_1) }}</small></span>
+              <span
+                ><strong>{{ detalle.cod_expediente }}</strong
+                ><small>{{ nombreParticipante(detalle.tesista_1) }}</small></span
+              >
             </div>
           </header>
 
@@ -644,7 +833,8 @@ onMounted(cargarInformacion)
             <main class="stitch-review-checklist">
               <div class="stitch-moment-label">
                 <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>
-                Momento {{ revision?.revision?.numero_ronda ?? 1 }}: {{ informeContexto?.es_tesis ? 'Tesis' : 'Proyecto' }}
+                Momento {{ revision?.revision?.numero_ronda ?? 1 }}:
+                {{ informeContexto?.es_tesis ? 'Tesis' : 'Proyecto' }}
               </div>
 
               <section class="stitch-requirements-card">
@@ -656,71 +846,120 @@ onMounted(cargarInformacion)
                   <span class="stitch-required">OBLIGATORIO</span>
                 </header>
 
-                <p v-if="revision?.revision === null" class="stitch-empty">Inicie la revisi&#243;n documentaria para habilitar los requisitos.</p>
-                <div v-else-if="revision?.revision.requisitos.length" class="stitch-requirements-list">
-                  <article v-for="requisito in revision.revision.requisitos" :key="requisito.id_requisito_documentario" class="stitch-requirement" :class="{ 'is-inactive': requisito.estado !== 1 }">
-                    <div class="stitch-requirement-copy">
-                      <span class="stitch-requirement-number">{{ requisito.codigo }}</span>
-                      <div>
-                        <h4>{{ requisito.nombre }}</h4>
-                        <p v-if="requisito.descripcion">{{ requisito.descripcion }}</p>
-                        <p v-else>Sin informaci&#243;n adicional.</p>
+                <p v-if="revision?.revision === null" class="stitch-empty">
+                  Inicie la revisi&#243;n documentaria para habilitar los requisitos.
+                </p>
+                <div
+                  v-else-if="revision?.revision.requisitos.length"
+                  class="stitch-requirements-list"
+                >
+                  <article
+                    v-for="requisito in revision.revision.requisitos"
+                    :key="requisito.id_requisito_documentario"
+                    class="stitch-requirement"
+                    :class="{ 'is-inactive': requisito.estado !== 1 }"
+                  >
+                    <div class="stitch-requirement-main">
+                      <div class="stitch-requirement-copy">
+                        <span class="stitch-requirement-number">{{ requisito.codigo }}</span>
+                        <div>
+                          <h4>
+                            {{ requisito.nombre }}
+                            <span v-if="estaEnSubsanacion(requisito)" class="stitch-correction-label">En subsanación</span>
+                          </h4>
+                          <p v-if="requisito.descripcion">{{ requisito.descripcion }}</p>
+                          <p v-else>Sin informaci&#243;n adicional.</p>
+                        </div>
                       </div>
-                    </div>
 
-                    <div v-if="puedeEvaluar && requisito.estado === 1" class="stitch-evaluation-form">
-                      <div class="stitch-decision-options" role="radiogroup" :aria-label="`Resultado para ${requisito.nombre}`">
-                        <label class="stitch-decision is-conforme" :class="{ 'is-selected': formularioEvaluacion(requisito.id_requisito_documentario).resultado === 'conforme' }">
-                          <input v-model="formularioEvaluacion(requisito.id_requisito_documentario).resultado" type="radio" value="conforme" :disabled="estaGestionando" @change="guardarEvaluacion(requisito)">
-                          <span class="material-symbols-outlined" aria-hidden="true">check</span>
-                          Cumple
-                        </label>
-                        <label class="stitch-decision is-observado" :class="{ 'is-selected': formularioEvaluacion(requisito.id_requisito_documentario).resultado === 'observado' }">
-                          <input v-model="formularioEvaluacion(requisito.id_requisito_documentario).resultado" type="radio" value="observado" :disabled="estaGestionando" @change="guardarEvaluacion(requisito)">
-                          <span class="material-symbols-outlined" aria-hidden="true">close</span>
-                          No cumple
+                      <div
+                        v-if="puedeEvaluar && requisito.estado === 1"
+                        class="stitch-evaluation-form"
+                      >
+                        <div
+                          class="stitch-decision-options"
+                          role="radiogroup"
+                          :aria-label="`Resultado para ${requisito.nombre}`"
+                        >
+                          <label
+                            class="stitch-decision is-conforme"
+                            :class="{
+                              'is-selected':
+                                formularioEvaluacion(requisito.id_requisito_documentario)
+                                  .resultado === 'conforme',
+                            }"
+                          >
+                            <input
+                              v-model="
+                                formularioEvaluacion(requisito.id_requisito_documentario).resultado
+                              "
+                              type="radio"
+                              value="conforme"
+                              :disabled="estaGestionando"
+                            />
+                            <span class="material-symbols-outlined" aria-hidden="true">check</span>
+                            Cumple
+                          </label>
+                          <label
+                            class="stitch-decision is-observado"
+                            :class="{
+                              'is-selected':
+                                formularioEvaluacion(requisito.id_requisito_documentario)
+                                  .resultado === 'observado',
+                            }"
+                          >
+                            <input
+                              v-model="
+                                formularioEvaluacion(requisito.id_requisito_documentario).resultado
+                              "
+                              type="radio"
+                              value="observado"
+                              :disabled="estaGestionando"
+                            />
+                            <span class="material-symbols-outlined" aria-hidden="true">close</span>
+                            No cumple
+                          </label>
+                        </div>
+                        <label
+                          v-if="
+                            formularioEvaluacion(requisito.id_requisito_documentario).resultado ===
+                            'observado'
+                          "
+                          class="stitch-comment-field"
+                        >
+                          <span>Observaci&#243;n para el tesista (opcional)</span>
+                          <textarea
+                            v-model="
+                              formularioEvaluacion(requisito.id_requisito_documentario).comentario
+                            "
+                            rows="3"
+                            maxlength="1000"
+                            :disabled="estaGestionando"
+                            placeholder="Puede agregar una indicaci&#243;n adicional."
+                          ></textarea>
                         </label>
                       </div>
-                    </div>
 
-                    <div v-else class="stitch-evaluation-readonly">
-                      <span class="evaluation-badge" :class="`is-${requisito.evaluacion?.resultado ?? 'pending'}`">{{ etiquetaResultado(requisito.evaluacion?.resultado) }}</span>
-                      <span v-if="requisito.evaluacion">Evaluado {{ fechaTexto(requisito.evaluacion.fecha_evaluacion) }}</span>
-                      <span v-else>Pendiente de evaluaci&#243;n</span>
-                    </div>
-
-                    <template v-if="requisito.evaluacion">
-                      <p v-if="requisito.evaluacion.comentario" class="stitch-saved-comment">{{ requisito.evaluacion.comentario }}</p>
-                      <p v-if="confirmaciones[`evaluacion-${requisito.id_requisito_documentario}`]" class="inline-success" role="status">{{ confirmaciones[`evaluacion-${requisito.id_requisito_documentario}`] }}</p>
-
-                      <form v-if="puedeRegistrarObservacion(requisito)" class="stitch-observation-form" @submit.prevent="registrarObservacion(requisito)">
-                        <label>
-                          <span>Observaci&#243;n para el tesista</span>
-                          <textarea v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).detalle" :disabled="estaGestionando" rows="3" required placeholder="Detalle lo que debe subsanarse"></textarea>
-                        </label>
-                        <fieldset :disabled="estaGestionando">
-                          <legend>Tipo de observaci&#243;n</legend>
-                          <label><input v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).es_subsanable" type="radio" :name="`subsanable-${requisito.evaluacion.id_evaluacion_requisito}`" :value="true"> Subsanable</label>
-                          <label><input v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).es_subsanable" type="radio" :name="`subsanable-${requisito.evaluacion.id_evaluacion_requisito}`" :value="false"> No subsanable</label>
-                        </fieldset>
-                        <button type="submit" class="stitch-observation-button" :disabled="estaGestionando">{{ operacionEnCurso === `observacion-${requisito.evaluacion.id_evaluacion_requisito}` ? 'Registrando...' : 'Registrar observaci&#243;n' }}</button>
-                      </form>
-
-                      <div v-if="requisito.evaluacion.observaciones.length" class="stitch-observations-history">
-                        <article v-for="observacion in requisito.evaluacion.observaciones" :key="observacion.id_observacion_documentaria">
-                          <div><strong>Observaci&#243;n</strong><span>{{ observacion.estado === 'cerrada' ? 'Cerrada' : observacion.estado === 'en_subsanacion' ? 'En subsanaci&#243;n' : 'Pendiente' }}</span></div>
-                          <p>{{ observacion.detalle }}</p>
-                          <div v-for="subsanacion in observacion.subsanaciones" :key="subsanacion.id_subsanacion_documentaria" class="stitch-subsanacion">
-                            <span>Subsanaci&#243;n {{ subsanacion.numero_intento }}: {{ subsanacion.resultado ?? 'Pendiente de revisi&#243;n' }}</span>
-                            <button v-if="subsanacion.archivo_adjunto" type="button" class="stitch-text-button" :disabled="descargando === `subsanacion-${subsanacion.id_subsanacion_documentaria}`" @click="descargarDocumento(subsanacion.archivo_adjunto, `subsanacion-${subsanacion.id_subsanacion_documentaria}`, `subsanacion-${subsanacion.id_subsanacion_documentaria}`)">Descargar</button>
-                            <template v-if="puedeRevisarSubsanacion(observacion, subsanacion)">
-                              <button type="button" class="stitch-text-button is-success" :disabled="estaGestionando" @click="revisarSubsanacion(observacion, subsanacion, 'aceptada')">Aceptar</button>
-                              <button type="button" class="stitch-text-button is-danger" :disabled="estaGestionando" @click="revisarSubsanacion(observacion, subsanacion, 'rechazada')">Rechazar</button>
-                            </template>
-                          </div>
-                        </article>
+                      <div v-else class="stitch-evaluation-readonly">
+                        <span
+                          class="evaluation-badge"
+                          :class="`is-${requisito.evaluacion?.resultado ?? 'pending'}`"
+                          >{{ etiquetaResultado(requisito.evaluacion?.resultado) }}</span
+                        >
+                        <span v-if="requisito.evaluacion"
+                          >Evaluado {{ fechaTexto(requisito.evaluacion.fecha_evaluacion) }}</span
+                        >
+                        <span v-else>Pendiente de evaluaci&#243;n</span>
                       </div>
-                    </template>
+
+                      <template v-if="requisito.evaluacion">
+                        <p v-if="requisito.evaluacion.comentario" class="stitch-saved-comment">
+                          {{ requisito.evaluacion.comentario }}
+                        </p>
+
+
+                      </template>
+                    </div>
                   </article>
                 </div>
                 <p v-else class="stitch-empty">No hay requisitos activos para esta ronda.</p>
@@ -729,662 +968,200 @@ onMounted(cargarInformacion)
 
             <aside class="stitch-review-sidebar">
               <section class="stitch-side-card">
-                <header><h3>Archivos adjuntos</h3><span class="material-symbols-outlined" aria-hidden="true">attach_file</span></header>
+                <header>
+                  <h3>Archivos adjuntos</h3>
+                  <span class="material-symbols-outlined" aria-hidden="true">attach_file</span>
+                </header>
                 <div class="stitch-files-list">
+                  <article
+                    v-for="item in adjuntosSubsanados"
+                    :key="item.subsanacion.id_subsanacion_documentaria"
+                    class="stitch-file-row"
+                    :class="{ 'is-new': item.subsanacion.resultado === null }"
+                  >
+                    <span class="material-symbols-outlined" aria-hidden="true">description</span>
+                    <div>
+                      <strong>{{ item.nombre }}</strong>
+                      <small>Versión {{ item.version }} · Subsanado</small>
+                      <span v-if="item.subsanacion.resultado === null" class="stitch-new-file">Nuevo · Por revisar</span>
+                    </div>
+                    <button
+                      type="button"
+                      :disabled="descargando === `subsanacion-${item.subsanacion.id_subsanacion_documentaria}`"
+                      aria-label="Descargar documento corregido"
+                      @click="descargarDocumento(item.subsanacion.archivo_adjunto!, `correccion-${item.requisito.codigo}`, `subsanacion-${item.subsanacion.id_subsanacion_documentaria}`)"
+                    >
+                      <span class="material-symbols-outlined" aria-hidden="true">download</span>
+                    </button>
+                  </article>
                   <article class="stitch-file-row">
                     <span class="material-symbols-outlined" aria-hidden="true">description</span>
-                    <div><strong>Solicitud</strong><small>{{ detalle.solicitud_adjunta ? 'Documento disponible' : 'Sin informaci&#243;n' }}</small></div>
-                    <button v-if="detalle.solicitud_adjunta" type="button" :disabled="descargando === 'solicitud'" aria-label="Descargar solicitud" @click="descargarDocumento(detalle.solicitud_adjunta, `solicitud-${detalle.cod_expediente}`, 'solicitud')"><span class="material-symbols-outlined" aria-hidden="true">download</span></button>
+                    <div>
+                      <strong>Solicitud</strong
+                      ><small>{{
+                        detalle.solicitud_adjunta ? 'Versión 1 · Original' : 'Sin informaci&#243;n'
+                      }}</small>
+                    </div>
+                    <button
+                      v-if="detalle.solicitud_adjunta"
+                      type="button"
+                      :disabled="descargando === 'solicitud'"
+                      aria-label="Descargar solicitud"
+                      @click="
+                        descargarDocumento(
+                          detalle.solicitud_adjunta,
+                          `solicitud-${detalle.cod_expediente}`,
+                          'solicitud',
+                        )
+                      "
+                    >
+                      <span class="material-symbols-outlined" aria-hidden="true">download</span>
+                    </button>
                   </article>
-                  <article v-for="informe in detalle.informes" :key="informe.id_informe_proyecto_tesis" class="stitch-file-row">
+                  <article
+                    v-for="informe in detalle.informes"
+                    :key="informe.id_informe_proyecto_tesis"
+                    class="stitch-file-row"
+                  >
                     <span class="material-symbols-outlined" aria-hidden="true">picture_as_pdf</span>
-                    <div><strong>{{ informe.titulo || 'Sin informaci\u00f3n' }}</strong><small>{{ informe.es_tesis ? 'Tesis' : 'Proyecto' }} · Versi&#243;n {{ informe.version ?? 'Sin registrar' }}</small></div>
-                    <button v-if="informe.archivo_adjunto" type="button" :disabled="descargando === `informe-${informe.id_informe_proyecto_tesis}`" :aria-label="`Descargar ${informe.titulo}`" @click="descargarDocumento(informe.archivo_adjunto, `informe-${informe.id_informe_proyecto_tesis}`, `informe-${informe.id_informe_proyecto_tesis}`)"><span class="material-symbols-outlined" aria-hidden="true">download</span></button>
+                    <div>
+                      <strong>{{ informe.es_tesis ? 'Tesis' : 'Proyecto de tesis' }}</strong
+                      ><small
+                        >Versi&#243;n {{ informe.version ?? 'Sin registrar' }} · Original</small
+                      >
+                    </div>
+                    <button
+                      v-if="informe.archivo_adjunto"
+                      type="button"
+                      :disabled="descargando === `informe-${informe.id_informe_proyecto_tesis}`"
+                      :aria-label="`Descargar ${informe.es_tesis ? 'tesis' : 'proyecto de tesis'}, versión ${informe.version}`"
+                      @click="
+                        descargarDocumento(
+                          informe.archivo_adjunto,
+                          `informe-${informe.id_informe_proyecto_tesis}`,
+                          `informe-${informe.id_informe_proyecto_tesis}`,
+                        )
+                      "
+                    >
+                      <span class="material-symbols-outlined" aria-hidden="true">download</span>
+                    </button>
                   </article>
                 </div>
-                <p v-if="!detalle.informes.length && !detalle.solicitud_adjunta" class="stitch-empty">Sin archivos adjuntos.</p>
+                <p
+                  v-if="!detalle.informes.length && !detalle.solicitud_adjunta"
+                  class="stitch-empty"
+                >
+                  Sin archivos adjuntos.
+                </p>
               </section>
 
               <section class="stitch-review-status">
-                <header><span class="material-symbols-outlined" aria-hidden="true">analytics</span><h3>Estado de la revisi&#243;n</h3></header>
-                <div class="stitch-status-line"><span>Estado actual</span><strong>{{ nombreEstado(detalle.estado_actual) }}</strong></div>
-                <div class="stitch-status-line"><span>Progreso</span><strong>{{ avanceRevision.evaluados }} de {{ avanceRevision.total }}</strong></div>
-                <div class="stitch-progress-track" aria-hidden="true"><span :style="{ width: `${avanceRevision.porcentaje ?? 0}%` }"></span></div>
-                <div class="stitch-turnitin-readout"><span>Similitud Turnitin</span><strong>{{ turnitinActual === null ? 'Pendiente' : `${turnitinActual}%` }}</strong></div>
+                <header>
+                  <span class="material-symbols-outlined" aria-hidden="true">analytics</span>
+                  <h3>Estado de la revisi&#243;n</h3>
+                </header>
+                <div class="stitch-status-line">
+                  <span>Estado actual</span
+                  ><strong>{{ nombreEstado(detalle.estado_actual) }}</strong>
+                </div>
+                <div class="stitch-status-line">
+                  <span>Progreso</span
+                  ><strong>{{ avanceRevision.evaluados }} de {{ avanceRevision.total }}</strong>
+                </div>
+                <div class="stitch-progress-track" aria-hidden="true">
+                  <span :style="{ width: `${avanceRevision.porcentaje ?? 0}%` }"></span>
+                </div>
+                <div class="stitch-turnitin-readout">
+                  <span>Similitud Turnitin</span
+                  ><strong>{{
+                    turnitinActual === null ? 'Pendiente' : `${turnitinActual}%`
+                  }}</strong>
+                </div>
               </section>
 
               <section class="stitch-side-card stitch-turnitin-form">
-                <header><h3>Porcentaje de similitud</h3><span class="material-symbols-outlined" aria-hidden="true">percent</span></header>
+                <header>
+                  <h3>Porcentaje de similitud</h3>
+                  <span class="material-symbols-outlined" aria-hidden="true">percent</span>
+                </header>
+
                 <div>
                   <label>
                     Registrar porcentaje
-                    <span class="stitch-percent-input"><input v-model.number="porcentajeTurnitin" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="0"><span>%</span></span>
+                    <span class="stitch-percent-input">
+                      <input
+                        v-model.number="porcentajeTurnitin"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        inputmode="numeric"
+                        placeholder="0"
+                        :disabled="estaGestionando || !informeContexto"
+                      />
+                      <span>%</span>
+                    </span>
                   </label>
-                  <p>{{ informeContexto ? `${informeContexto.es_tesis ? 'Tesis' : 'Proyecto'} · Versi\u00f3n ${informeContexto.version ?? 'Sin registrar'}` : 'Sin informe registrado' }}</p>
+
+                  <p>
+                    {{
+                      informeContexto
+                        ? `${informeContexto.es_tesis ? 'Tesis' : 'Proyecto'} · Versión ${versionInforme}`
+                        : 'Sin informe registrado'
+                    }}
+                  </p>
+
                 </div>
               </section>
 
               <div class="stitch-flow-actions">
-                <button type="button" class="stitch-primary-action" :disabled="!puedeSiguienteEtapa" @click="mostrarConformidad = true"><span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>Siguiente etapa</button>
-                <p v-if="turnitinActual !== null && turnitinActual > 50">La similitud debe ser 50% o menor para continuar.</p>
-                <p v-else-if="!puedeSiguienteEtapa">La siguiente etapa se habilita cuando todos los requisitos est&#233;n marcados como cumple.</p>
-              </div>
-            </aside>
-          </div>
-        </section>
-      </template>
-
-      <template v-else>
-      <p v-if="mensajeAccion" class="message success-message" role="status">{{ mensajeAccion }}</p>
-
-      <section class="expediente-overview" aria-labelledby="expediente-overview-title">
-        <article class="overview-card">
-          <div class="overview-meta">
-            <span class="status-badge" :class="claseEstado(detalle.estado_actual?.codigo)">
-              {{ nombreEstado(detalle.estado_actual) }}
-            </span>
-            <span class="stage-label">{{ nombreEtapa(detalle.etapa_actual) }}</span>
-          </div>
-
-          <div>
-            <p class="eyebrow">Expediente {{ detalle.cod_expediente }}</p>
-            <h2 id="expediente-overview-title">{{ tituloInforme }}</h2>
-            <p class="project-summary">{{ resumenInforme }}</p>
-          </div>
-
-          <dl class="overview-details">
-            <div>
-              <dt>Tesista 1</dt>
-              <dd>{{ nombreParticipante(detalle.tesista_1) }}</dd>
-            </div>
-            <div>
-              <dt>Tesista 2</dt>
-              <dd>{{ nombreParticipante(detalle.tesista_2) }}</dd>
-            </div>
-            <div>
-              <dt>Asesor</dt>
-              <dd>Sin información</dd>
-            </div>
-            <div>
-              <dt>Recibido por UDI</dt>
-              <dd>{{ eventoRecepcion ? fechaTexto(eventoRecepcion.fecha_cambio) : 'Pendiente' }}</dd>
-            </div>
-          </dl>
-        </article>
-
-        <aside class="progress-card" aria-label="Estado de la revisión">
-          <p class="eyebrow">Semáforo de gestión</p>
-          <div class="progress-ring" :class="{ 'is-pending': avanceRevision.porcentaje === null }">
-            <strong>{{ avanceRevision.porcentaje === null ? '—' : `${avanceRevision.porcentaje}%` }}</strong>
-            <span>{{ avanceRevision.porcentaje === null ? 'Pendiente' : 'Avance' }}</span>
-          </div>
-          <p class="progress-copy">
-            {{ avanceRevision.total ? `${avanceRevision.evaluados} de ${avanceRevision.total} requisitos evaluados` : 'Sin requisitos para calcular avance' }}
-          </p>
-          <div class="progress-track" aria-hidden="true">
-            <span :style="{ width: `${avanceRevision.porcentaje ?? 0}%` }"></span>
-          </div>
-          <p class="deadline"><span class="material-symbols-outlined" aria-hidden="true">schedule</span> Plazo: Sin información</p>
-        </aside>
-      </section>
-
-      <section class="action-panel" aria-labelledby="available-actions-title">
-        <div>
-          <p class="eyebrow">Gestión del flujo</p>
-          <h2 id="available-actions-title">Acciones disponibles</h2>
-        </div>
-        <div class="available-actions">
-          <button v-if="puedeRecepcionar" type="button" class="primary-button" :disabled="estaGestionando" @click="ejecutarAccion('recepcion')">
-            <span class="material-symbols-outlined" aria-hidden="true">move_to_inbox</span>
-            {{ accionEnCurso === 'recepcion' ? 'Recibiendo…' : 'Recibir expediente' }}
-          </button>
-          <button v-else-if="puedeIniciar" type="button" class="primary-button" :disabled="estaGestionando" @click="ejecutarAccion('iniciar')">
-            <span class="material-symbols-outlined" aria-hidden="true">rate_review</span>
-            {{ accionEnCurso === 'iniciar' ? 'Iniciando…' : 'Iniciar revisión' }}
-          </button>
-          <button v-else-if="puedeSolicitarSubsanacion" type="button" class="primary-button" :disabled="estaGestionando" @click="solicitarSubsanacion">
-            <span class="material-symbols-outlined" aria-hidden="true">send</span>
-            {{ accionEnCurso === 'subsanacion' ? 'Solicitando…' : 'Solicitar subsanación' }}
-          </button>
-          <button v-else-if="puedeDeclararConformidad" type="button" class="primary-button" :disabled="estaGestionando" @click="declararConformidad">
-            <span class="material-symbols-outlined" aria-hidden="true">verified_user</span>
-            {{ accionEnCurso === 'conformidad' ? 'Declarando…' : 'Emitir conformidad técnica' }}
-          </button>
-          <button v-else-if="puedeDerivarDecanatura" type="button" class="primary-button" :disabled="estaGestionando" @click="derivarDecanatura">
-            <span class="material-symbols-outlined" aria-hidden="true">forward_to_inbox</span>
-            {{ accionEnCurso === 'derivacion' ? 'Derivando…' : 'Derivar a Decanatura' }}
-          </button>
-          <p v-else class="muted">No hay acciones disponibles para el estado actual.</p>
-        </div>
-      </section>
-
-      <section class="workspace-card">
-        <div class="tabs" role="tablist" aria-label="Secciones de la revisión documentaria">
-          <button type="button" role="tab" :aria-selected="seccionActiva === 'revision'" :class="{ 'is-active': seccionActiva === 'revision' }" @click="seccionActiva = 'revision'">Revisión y observación</button>
-          <button type="button" role="tab" :aria-selected="seccionActiva === 'observaciones'" :class="{ 'is-active': seccionActiva === 'observaciones' }" @click="seccionActiva = 'observaciones'">Observaciones</button>
-          <button type="button" role="tab" :aria-selected="seccionActiva === 'subsanaciones'" :class="{ 'is-active': seccionActiva === 'subsanaciones' }" @click="seccionActiva = 'subsanaciones'">Subsanaciones</button>
-          <button type="button" role="tab" :aria-selected="seccionActiva === 'conformidad'" :class="{ 'is-active': seccionActiva === 'conformidad' }" @click="seccionActiva = 'conformidad'">Conformidad</button>
-          <button type="button" role="tab" :aria-selected="seccionActiva === 'historial'" :class="{ 'is-active': seccionActiva === 'historial' }" @click="seccionActiva = 'historial'">Historial</button>
-        </div>
-
-        <div v-if="seccionActiva === 'revision'" class="tab-content review-layout">
-          <div class="review-column">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">Ronda {{ revision?.revision?.numero_ronda ?? 'pendiente' }}</p>
-                <h2>Checklist de revisión</h2>
-              </div>
-              <span class="status-badge" :class="claseEstado(detalle.estado_actual?.codigo)">{{ nombreEstado(detalle.estado_actual) }}</span>
-            </div>
-
-            <p v-if="revision?.revision === null" class="empty-copy">Inicie la revisión documentaria para habilitar los requisitos.</p>
-            <div v-else-if="revision?.revision.requisitos.length" class="requirements-list">
-              <article v-for="requisito in revision.revision.requisitos" :key="requisito.id_requisito_documentario" class="requirement-card" :class="{ 'is-inactive': requisito.estado !== 1 }">
-                <div class="requirement-heading">
-                  <div>
-                    <p class="requirement-code">{{ requisito.codigo }}</p>
-                    <h3>{{ requisito.nombre }}</h3>
-                    <p v-if="requisito.descripcion" class="muted">{{ requisito.descripcion }}</p>
-                  </div>
-                  <span v-if="requisito.evaluacion" class="evaluation-badge" :class="`is-${requisito.evaluacion.resultado}`">{{ etiquetaResultado(requisito.evaluacion.resultado) }}</span>
-                  <span v-else class="evaluation-badge is-pending">Pendiente</span>
-                </div>
-
-                <form v-if="puedeEvaluar && requisito.estado === 1" class="evaluation-form" @submit.prevent="guardarEvaluacion(requisito)">
-                  <label>
-                    <span>Resultado</span>
-                    <select v-model="formularioEvaluacion(requisito.id_requisito_documentario).resultado" :disabled="estaGestionando" required>
-                      <option value="">Seleccione un resultado</option>
-                      <option value="conforme">Conforme</option>
-                      <option value="observado">Observado</option>
-                      <option value="no_presentado">No presentado</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>Comentario</span>
-                    <textarea v-model="formularioEvaluacion(requisito.id_requisito_documentario).comentario" :disabled="estaGestionando" rows="3" placeholder="Comentario opcional"></textarea>
-                  </label>
-                  <button type="submit" class="outline-button" :disabled="estaGestionando">{{ operacionEnCurso === `evaluacion-${requisito.id_requisito_documentario}` ? 'Guardando…' : 'Guardar evaluación' }}</button>
-                </form>
-
-                <template v-if="requisito.evaluacion">
-                  <p class="evaluation-meta">Evaluado: {{ fechaTexto(requisito.evaluacion.fecha_evaluacion) }}</p>
-                  <p v-if="requisito.evaluacion.comentario" class="comment-box">{{ requisito.evaluacion.comentario }}</p>
-                  <p v-if="confirmaciones[`evaluacion-${requisito.id_requisito_documentario}`]" class="inline-success" role="status">{{ confirmaciones[`evaluacion-${requisito.id_requisito_documentario}`] }}</p>
-
-                  <form v-if="puedeRegistrarObservacion(requisito)" class="observation-form" @submit.prevent="registrarObservacion(requisito)">
-                    <label>
-                      <span>Detalle de la observación</span>
-                      <textarea v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).detalle" :disabled="estaGestionando" rows="3" required placeholder="Indique el detalle que debe revisarse"></textarea>
-                    </label>
-                    <fieldset :disabled="estaGestionando">
-                      <legend>Clasificación</legend>
-                      <label><input v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).es_subsanable" type="radio" :name="`subsanable-${requisito.evaluacion.id_evaluacion_requisito}`" :value="true"> Subsanable</label>
-                      <label><input v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).es_subsanable" type="radio" :name="`subsanable-${requisito.evaluacion.id_evaluacion_requisito}`" :value="false"> No subsanable</label>
-                    </fieldset>
-                    <button type="submit" class="danger-button" :disabled="estaGestionando">{{ operacionEnCurso === `observacion-${requisito.evaluacion.id_evaluacion_requisito}` ? 'Registrando…' : 'Emitir observación' }}</button>
-                  </form>
-                </template>
-              </article>
-            </div>
-            <p v-else class="empty-copy">No hay requisitos activos para esta ronda.</p>
-          </div>
-
-          <aside class="side-column">
-            <section class="side-card">
-              <div class="section-heading compact"><h2>Documentos clave</h2><span class="material-symbols-outlined" aria-hidden="true">folder_open</span></div>
-              <div class="documents-list">
-                <div class="document-item">
-                  <span class="material-symbols-outlined" aria-hidden="true">description</span>
-                  <div><strong>Solicitud</strong><small>{{ detalle.solicitud_adjunta ? 'Disponible para descarga' : 'Sin información' }}</small></div>
-                  <button v-if="detalle.solicitud_adjunta" type="button" class="icon-button" :disabled="descargando === 'solicitud'" aria-label="Descargar solicitud" @click="descargarDocumento(detalle.solicitud_adjunta, `solicitud-${detalle.cod_expediente}`, 'solicitud')"><span class="material-symbols-outlined" aria-hidden="true">download</span></button>
-                </div>
-                <div v-for="informe in detalle.informes" :key="informe.id_informe_proyecto_tesis" class="document-item">
-                  <span class="material-symbols-outlined" aria-hidden="true">picture_as_pdf</span>
-                  <div><strong>{{ informe.titulo }}</strong><small>{{ informe.es_tesis ? 'Tesis final' : 'Proyecto' }} · Versión {{ informe.version }}<template v-if="informe.turnitin !== null"> · Turnitin {{ informe.turnitin }}%</template></small></div>
-                  <button v-if="informe.archivo_adjunto" type="button" class="icon-button" :disabled="descargando === `informe-${informe.id_informe_proyecto_tesis}`" aria-label="Descargar informe" @click="descargarDocumento(informe.archivo_adjunto, `informe-${informe.id_informe_proyecto_tesis}`, `informe-${informe.id_informe_proyecto_tesis}`)"><span class="material-symbols-outlined" aria-hidden="true">download</span></button>
-                </div>
-              </div>
-              <p v-if="!detalle.informes.length" class="muted">No hay informes registrados.</p>
-            </section>
-
-            <section class="side-card">
-              <div class="section-heading compact"><h2>Similitud</h2><span class="material-symbols-outlined" aria-hidden="true">analytics</span></div>
-              <template v-if="informeContexto">
-                <strong class="turnitin-value">{{ informeContexto.turnitin === null ? 'Pendiente' : `${informeContexto.turnitin}%` }}</strong>
-                <p class="muted">{{ informeContexto.turnitin === null ? 'Porcentaje sin registrar para el informe seleccionado.' : `${informeContexto.es_tesis ? 'Tesis final' : 'Proyecto'} · Versión ${informeContexto.version}` }}</p>
-              </template>
-              <p v-else class="muted">Sin informe registrado.</p>
-            </section>
-          </aside>
-        </div>
-
-        <div v-else-if="seccionActiva === 'observaciones'" class="tab-content">
-          <div class="section-heading"><div><p class="eyebrow">Seguimiento de requisitos</p><h2>Observaciones emitidas</h2></div><span class="status-badge" :class="claseEstado(detalle.estado_actual?.codigo)">{{ nombreEstado(detalle.estado_actual) }}</span></div>
-          <div v-if="observaciones.length" class="observation-list">
-            <article v-for="item in observaciones" :key="item.observacion.id_observacion_documentaria" class="observation-card">
-              <div class="observation-card-heading"><div><p class="requirement-code">{{ item.requisito.codigo }}</p><h3>{{ item.requisito.nombre }}</h3></div><span class="evaluation-badge" :class="item.observacion.estado === 'cerrada' ? 'is-conforme' : item.observacion.estado === 'en_subsanacion' ? 'is-pending' : 'is-observado'">{{ item.observacion.estado === 'cerrada' ? 'Cerrada' : item.observacion.estado === 'en_subsanacion' ? 'En subsanación' : 'Pendiente' }}</span></div>
-              <p>{{ item.observacion.detalle }}</p>
-              <p class="muted">{{ item.observacion.es_subsanable ? 'Subsanable' : 'No subsanable' }} · Emitida {{ fechaTexto(item.observacion.fecha_emision) }}</p>
-            </article>
-          </div>
-          <p v-else class="empty-copy">No hay observaciones registradas en la ronda actual.</p>
-        </div>
-
-        <div v-else-if="seccionActiva === 'subsanaciones'" class="tab-content">
-          <div class="section-heading"><div><p class="eyebrow">Documentos presentados por Tesista</p><h2>Subsanaciones</h2></div></div>
-          <div v-if="observaciones.length" class="subsanation-list">
-            <article v-for="item in observaciones" :key="item.observacion.id_observacion_documentaria" class="subsanation-card">
-              <h3>{{ item.requisito.codigo }} · {{ item.requisito.nombre }}</h3>
-              <p class="muted">{{ item.observacion.detalle }}</p>
-              <div v-if="item.observacion.subsanaciones.length" class="attempt-list">
-                <div v-for="subsanacion in item.observacion.subsanaciones" :key="subsanacion.id_subsanacion_documentaria" class="attempt-item">
-                  <div><strong>Intento {{ subsanacion.numero_intento }}</strong><p>Resultado: {{ subsanacion.resultado ?? 'Pendiente de revisión' }}</p><p>Presentado: {{ fechaTexto(subsanacion.fecha_presentacion) }}</p><p v-if="subsanacion.detalle">{{ subsanacion.detalle }}</p></div>
-                  <div class="attempt-actions">
-                    <button v-if="subsanacion.archivo_adjunto" type="button" class="outline-button" :disabled="descargando === `subsanacion-${subsanacion.id_subsanacion_documentaria}`" @click="descargarDocumento(subsanacion.archivo_adjunto, `subsanacion-${subsanacion.id_subsanacion_documentaria}`, `subsanacion-${subsanacion.id_subsanacion_documentaria}`)"><span class="material-symbols-outlined" aria-hidden="true">download</span> Descargar</button>
-                    <template v-if="puedeRevisarSubsanacion(item.observacion, subsanacion)"><button type="button" class="primary-button" :disabled="estaGestionando" @click="revisarSubsanacion(item.observacion, subsanacion, 'aceptada')">{{ operacionEnCurso === `subsanacion-${subsanacion.id_subsanacion_documentaria}` ? 'Guardando…' : 'Aceptar' }}</button><button type="button" class="danger-button" :disabled="estaGestionando" @click="revisarSubsanacion(item.observacion, subsanacion, 'rechazada')">Rechazar</button></template>
-                  </div>
-                </div>
-              </div>
-              <p v-else class="empty-copy">No hay subsanaciones presentadas.</p>
-            </article>
-          </div>
-          <p v-else class="empty-copy">No hay observaciones con subsanaciones para mostrar.</p>
-        </div>
-
-        <div v-else-if="seccionActiva === 'conformidad'" class="tab-content conformity-view">
-          <nav class="conformity-breadcrumb" aria-label="Ubicación de la revisión">
-            <span>Gestión académica</span>
-            <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
-            <span>Expediente {{ detalle.cod_expediente }}</span>
-            <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
-            <strong>Emisión de conformidad</strong>
-          </nav>
-
-          <div class="conformity-layout">
-            <div class="conformity-checklist-column">
-              <section class="conformity-table-card">
-                <header class="conformity-card-heading">
-                  <h2>Checklist final de revisión</h2>
-                  <span class="conformity-status" :class="{ 'is-ready': puedeDeclararConformidad || detalle.estado_actual?.codigo === 'conforme' }">
-                    {{ puedeDeclararConformidad || detalle.estado_actual?.codigo === 'conforme' ? 'Estado: apto' : `Estado: ${nombreEstado(detalle.estado_actual)}` }}
-                  </span>
-                </header>
-                <div class="table-wrapper">
-                  <table>
-                    <thead><tr><th>Requisito</th><th>Estado</th><th>Observaciones</th></tr></thead>
-                    <tbody>
-                      <tr v-for="requisito in revision?.revision?.requisitos ?? []" :key="requisito.id_requisito_documentario">
-                        <td><strong>{{ requisito.nombre }}</strong><span>{{ requisito.codigo }}</span></td>
-                        <td><span class="evaluation-badge" :class="`is-${requisito.evaluacion?.resultado ?? 'pending'}`"><span class="material-symbols-outlined" aria-hidden="true">{{ requisito.evaluacion?.resultado === 'conforme' ? 'check_circle' : requisito.evaluacion?.resultado === 'observado' ? 'error' : 'pending' }}</span>{{ etiquetaResultado(requisito.evaluacion?.resultado) }}</span></td>
-                        <td>{{ requisito.evaluacion?.observaciones.length ? `${requisito.evaluacion.observaciones.length} registrada(s)` : 'Sin observaciones pendientes' }}</td>
-                      </tr>
-                      <tr>
-                        <td><strong>Informe de similitud (Turnitin)</strong><span>{{ informeContexto ? `${informeContexto.es_tesis ? 'Tesis final' : 'Proyecto'} · Versión ${informeContexto.version}` : 'Sin informe registrado' }}</span></td>
-                        <td><span class="evaluation-badge" :class="informeContexto?.turnitin === null || !informeContexto ? 'is-pending' : 'is-conforme'"><span class="material-symbols-outlined" aria-hidden="true">{{ informeContexto?.turnitin === null || !informeContexto ? 'pending' : 'check_circle' }}</span>{{ informeContexto?.turnitin === null || !informeContexto ? 'Pendiente' : `${informeContexto.turnitin}%` }}</span></td>
-                        <td>{{ informeContexto?.turnitin === null || !informeContexto ? 'Sin registrar' : 'Porcentaje registrado' }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-
-              <section class="documentation-status" :class="{ 'is-ready': puedeDeclararConformidad || detalle.estado_actual?.codigo === 'conforme' }">
-                <span class="material-symbols-outlined" aria-hidden="true">verified</span>
-                <div>
-                  <h2>Estado de documentación</h2>
-                  <p>{{ detalle.estado_actual?.codigo === 'conforme' ? 'La revisión documentaria fue cerrada como conforme. No existen bloqueos técnicos pendientes.' : puedeDeclararConformidad ? 'Todos los requisitos activos están conformes y no existen observaciones abiertas.' : 'La conformidad estará disponible cuando todos los requisitos activos estén conformes y no existan observaciones abiertas.' }}</p>
-                </div>
-              </section>
-            </div>
-
-            <aside class="conformity-form-card">
-              <h2>Formulario de conformidad</h2>
-              <form @submit.prevent>
-                <label>
-                  Código de conformidad
-                  <span class="input-with-icon"><span class="material-symbols-outlined" aria-hidden="true">tag</span><input value="Pendiente" disabled></span>
-                </label>
-                <div class="conformity-dates">
-                  <label>Fecha de emisión<input type="date" :value="fechaCierreRevision?.slice(0, 10) ?? ''" disabled></label>
-                  <label>Hora registro<input type="time" :value="fechaCierreRevision?.slice(11, 16) ?? ''" disabled></label>
-                </div>
-                <label>
-                  Responsable técnico
-                  <select disabled><option>Sin registrar</option></select>
-                </label>
-                <div class="acta-field">
-                  <span>Acta de conformidad técnica (PDF)</span>
-                  <div class="acta-dropzone" aria-disabled="true">
-                    <span class="material-symbols-outlined" aria-hidden="true">upload_file</span>
-                    <strong>Sin acta registrada</strong>
-                    <small>La carga de acta aún no está disponible.</small>
-                  </div>
-                </div>
-                <button v-if="puedeDeclararConformidad" type="button" class="conformity-primary-action" :disabled="estaGestionando" @click="declararConformidad"><span class="material-symbols-outlined" aria-hidden="true">verified_user</span>{{ accionEnCurso === 'conformidad' ? 'Declarando…' : 'Emitir conformidad técnica' }}</button>
-                <button v-else-if="puedeDerivarDecanatura" type="button" class="conformity-primary-action" :disabled="estaGestionando" @click="derivarDecanatura"><span class="material-symbols-outlined" aria-hidden="true">forward_to_inbox</span>{{ accionEnCurso === 'derivacion' ? 'Derivando…' : 'Derivar a Decanatura' }}</button>
-                <button v-else type="button" class="conformity-primary-action" disabled><span class="material-symbols-outlined" aria-hidden="true">verified_user</span>Emitir conformidad técnica</button>
-              </form>
-            </aside>
-          </div>
-        </div>
-
-        <div v-else class="tab-content history-layout">
-          <section><div class="section-heading"><div><p class="eyebrow">Trazabilidad del expediente</p><h2>Historial de movimientos</h2></div></div><ol v-if="detalle.historial.length" class="timeline"><li v-for="evento in detalle.historial" :key="evento.id_historial"><span class="timeline-dot"></span><div><strong>{{ evento.accion_realizada }}</strong><p>{{ fechaTexto(evento.fecha_cambio) }}</p><p class="muted">{{ evento.responsable?.nombre ?? 'Sistema' }}</p></div></li></ol><p v-else class="empty-copy">No hay movimientos registrados.</p></section>
-          <aside class="rounds-card"><h2>Rondas de revisión</h2><ol v-if="revision?.rondas.length" class="round-list"><li v-for="ronda in revision.rondas" :key="ronda.id_revision_documentaria"><strong>Ronda {{ ronda.numero_ronda }}</strong><span>Inicio: {{ fechaTexto(ronda.fecha_inicio) }}</span><span>Cierre: {{ fechaTexto(ronda.fecha_cierre) }}</span><span>Resultado: {{ ronda.resultado_final ?? 'Pendiente' }}</span></li></ol><p v-else class="empty-copy">No se inició una ronda.</p></aside>
-        </div>
-      </section>
-      </template>
-    </template>
-  </section>
-
-  <section v-if="detalle && revision" class="legacy-view" aria-hidden="true">
-    <div class="heading">
-      <div>
-        <h1>Revisión documentaria UDI</h1>
-        <p v-if="detalle">Expediente {{ detalle.cod_expediente }}</p>
-      </div>
-      <div class="actions">
-        <button type="button" :disabled="cargando" @click="cargarInformacion">
-          {{ cargando ? 'Actualizando…' : 'Actualizar' }}
-        </button>
-        <button type="button" class="secondary" @click="router.push({ name: 'udi-expedientes' })">
-          Volver a la bandeja
-        </button>
-      </div>
-    </div>
-
-    <p v-if="mensajeError" class="error" role="alert">{{ mensajeError }}</p>
-    <p v-if="mensajeAccion" class="success" role="status">{{ mensajeAccion }}</p>
-
-    <p v-if="cargando" class="status">Cargando revisión documentaria…</p>
-
-    <div v-else-if="detalle === null" class="status">El expediente no contiene información de detalle.</div>
-
-    <template v-else>
-      <div class="summary-grid">
-        <section class="card">
-          <h2>Estado actual</h2>
-          <dl>
-            <div>
-              <dt>Etapa</dt>
-              <dd>{{ nombreEtapa(detalle.etapa_actual) }}</dd>
-            </div>
-            <div>
-              <dt>Estado</dt>
-              <dd>{{ nombreEstado(detalle.estado_actual) }}</dd>
-            </div>
-            <div>
-              <dt>Tesista 1</dt>
-              <dd>{{ nombreParticipante(detalle.tesista_1) }}</dd>
-            </div>
-            <div>
-              <dt>Tesista 2</dt>
-              <dd>{{ nombreParticipante(detalle.tesista_2) }}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section class="card">
-          <h2>Acciones disponibles</h2>
-          <button
-            v-if="puedeRecepcionar"
-            type="button"
-            :disabled="estaGestionando"
-            @click="ejecutarAccion('recepcion')"
-          >
-            {{ accionEnCurso === 'recepcion' ? 'Recibiendo…' : 'Recibir expediente' }}
-          </button>
-          <button
-            v-else-if="puedeIniciar"
-            type="button"
-            :disabled="estaGestionando"
-            @click="ejecutarAccion('iniciar')"
-          >
-            {{ accionEnCurso === 'iniciar' ? 'Iniciando…' : 'Iniciar revisión' }}
-          </button>
-          <button
-            v-else-if="puedeSolicitarSubsanacion"
-            type="button"
-            :disabled="estaGestionando"
-            @click="solicitarSubsanacion"
-          >
-            {{ accionEnCurso === 'subsanacion' ? 'Solicitando…' : 'Solicitar subsanación' }}
-          </button>
-          <button
-            v-else-if="puedeDeclararConformidad"
-            type="button"
-            :disabled="estaGestionando"
-            @click="declararConformidad"
-          >
-            {{ accionEnCurso === 'conformidad' ? 'Declarando…' : 'Declarar conformidad' }}
-          </button>
-          <button
-            v-else-if="puedeDerivarDecanatura"
-            type="button"
-            :disabled="estaGestionando"
-            @click="derivarDecanatura"
-          >
-            {{ accionEnCurso === 'derivacion' ? 'Derivando…' : 'Derivar a Decanatura' }}
-          </button>
-          <p v-else class="muted">No hay acciones de revisión disponibles para el estado actual.</p>
-        </section>
-      </div>
-
-      <section class="card section">
-        <h2>Solicitud e informes</h2>
-        <div class="documents">
-          <div>
-            <strong>Solicitud</strong>
-            <button
-              v-if="detalle.solicitud_adjunta"
-              type="button"
-              :disabled="descargando === 'solicitud'"
-              @click="descargarDocumento(detalle.solicitud_adjunta, `solicitud-${detalle.cod_expediente}`, 'solicitud')"
-            >
-              {{ descargando === 'solicitud' ? 'Descargando…' : 'Descargar solicitud' }}
-            </button>
-            <p v-else class="muted">No hay solicitud disponible.</p>
-          </div>
-          <div v-for="informe in detalle.informes" :key="informe.id_informe_proyecto_tesis">
-            <strong>{{ informe.titulo }}</strong>
-            <p class="muted">{{ informe.es_tesis ? 'Tesis final' : 'Proyecto' }} · Versión {{ informe.version }}</p>
-            <button
-              v-if="informe.archivo_adjunto"
-              type="button"
-              :disabled="descargando === `informe-${informe.id_informe_proyecto_tesis}`"
-              @click="
-                descargarDocumento(
-                  informe.archivo_adjunto,
-                  `informe-${informe.id_informe_proyecto_tesis}`,
-                  `informe-${informe.id_informe_proyecto_tesis}`,
-                )
-              "
-            >
-              {{ descargando === `informe-${informe.id_informe_proyecto_tesis}` ? 'Descargando…' : 'Descargar informe' }}
-            </button>
-            <p v-else class="muted">No hay documento disponible.</p>
-          </div>
-        </div>
-        <p v-if="!detalle.informes.length" class="muted">No hay informes registrados.</p>
-      </section>
-
-      <section class="card section">
-        <h2>Rondas</h2>
-        <ol v-if="revision?.rondas.length" class="rounds">
-          <li v-for="ronda in revision.rondas" :key="ronda.id_revision_documentaria">
-            <strong>Ronda {{ ronda.numero_ronda }}</strong>
-            <span>Inicio: {{ fechaTexto(ronda.fecha_inicio) }}</span>
-            <span>Cierre: {{ fechaTexto(ronda.fecha_cierre) }}</span>
-            <span>Resultado: {{ ronda.resultado_final ?? 'Pendiente' }}</span>
-          </li>
-        </ol>
-        <p v-else class="muted">No se ha iniciado una ronda de revisión documentaria.</p>
-      </section>
-
-      <section class="card section">
-        <h2>Requisitos, evaluaciones y observaciones</h2>
-        <p v-if="revision?.revision === null" class="muted">No hay una revisión documentaria para consultar.</p>
-        <ul v-else-if="revision?.revision.requisitos.length" class="requirements">
-          <li v-for="requisito in revision.revision.requisitos" :key="requisito.id_requisito_documentario">
-            <div>
-              <strong>{{ requisito.codigo }} · {{ requisito.nombre }}</strong>
-              <p v-if="requisito.descripcion" class="muted">{{ requisito.descripcion }}</p>
-            </div>
-
-            <form v-if="puedeEvaluar" class="review-form" @submit.prevent="guardarEvaluacion(requisito)">
-              <label>
-                Resultado
-                <select v-model="formularioEvaluacion(requisito.id_requisito_documentario).resultado" :disabled="estaGestionando" required>
-                  <option value="">Seleccione un resultado</option>
-                  <option value="conforme">Conforme</option>
-                  <option value="observado">Observado</option>
-                  <option value="no_presentado">No presentado</option>
-                </select>
-              </label>
-              <label>
-                Comentario (opcional)
-                <textarea
-                  v-model="formularioEvaluacion(requisito.id_requisito_documentario).comentario"
-                  :disabled="estaGestionando"
-                  rows="3"
-                ></textarea>
-              </label>
-              <button type="submit" :disabled="estaGestionando">
-                {{ operacionEnCurso === `evaluacion-${requisito.id_requisito_documentario}` ? 'Guardando…' : 'Guardar evaluación' }}
-              </button>
-            </form>
-            <p v-if="confirmaciones[`evaluacion-${requisito.id_requisito_documentario}`]" class="inline-success" role="status">
-              {{ confirmaciones[`evaluacion-${requisito.id_requisito_documentario}`] }}
-            </p>
-
-            <template v-if="requisito.evaluacion">
-              <p>
-                Evaluación: {{ requisito.evaluacion.resultado }} ·
-                {{ fechaTexto(requisito.evaluacion.fecha_evaluacion) }}
-              </p>
-              <p v-if="requisito.evaluacion.comentario">Comentario: {{ requisito.evaluacion.comentario }}</p>
-              <p
-                v-if="confirmaciones[`observacion-${requisito.evaluacion.id_evaluacion_requisito}`]"
-                class="inline-success"
-                role="status"
-              >
-                {{ confirmaciones[`observacion-${requisito.evaluacion.id_evaluacion_requisito}`] }}
-              </p>
-
-              <ul v-if="requisito.evaluacion.observaciones.length" class="observations">
-                <li v-for="observacion in requisito.evaluacion.observaciones" :key="observacion.id_observacion_documentaria">
-                  <strong>Observación</strong>
-                  <p>{{ observacion.detalle }}</p>
-                  <p class="muted">
-                    {{ observacion.es_subsanable ? 'Subsanable' : 'No subsanable' }} · {{ observacion.estado }}
-                  </p>
-
-                  <ul v-if="observacion.subsanaciones.length" class="subsanations">
-                    <li v-for="subsanacion in observacion.subsanaciones" :key="subsanacion.id_subsanacion_documentaria">
-                      <strong>Intento {{ subsanacion.numero_intento }}</strong>
-                      <p>Observación relacionada: {{ observacion.detalle }}</p>
-                      <p>Resultado: {{ subsanacion.resultado ?? 'Pendiente de revisión' }}</p>
-                      <p>Presentado: {{ fechaTexto(subsanacion.fecha_presentacion) }}</p>
-                      <p v-if="subsanacion.detalle">Detalle del Tesista: {{ subsanacion.detalle }}</p>
-                      <p v-else class="muted">El Tesista no registró un detalle adicional.</p>
-                      <button
-                        v-if="subsanacion.archivo_adjunto"
-                        type="button"
-                        :disabled="descargando === `subsanacion-${subsanacion.id_subsanacion_documentaria}`"
-                        @click="
-                          descargarDocumento(
-                            subsanacion.archivo_adjunto,
-                            `subsanacion-${subsanacion.id_subsanacion_documentaria}`,
-                            `subsanacion-${subsanacion.id_subsanacion_documentaria}`,
-                          )
-                        "
-                      >
-                        {{
-                          descargando === `subsanacion-${subsanacion.id_subsanacion_documentaria}`
-                            ? 'Descargando…'
-                            : 'Descargar archivo adjunto'
-                        }}
-                      </button>
-                      <p v-else class="muted">No hay archivo adjunto disponible.</p>
-                      <p
-                        v-if="confirmaciones[`subsanacion-${subsanacion.id_subsanacion_documentaria}`]"
-                        class="inline-success"
-                        role="status"
-                      >
-                        {{ confirmaciones[`subsanacion-${subsanacion.id_subsanacion_documentaria}`] }}
-                      </p>
-                      <div v-if="puedeRevisarSubsanacion(observacion, subsanacion)" class="subsanation-actions">
-                        <button
-                          type="button"
-                          :disabled="estaGestionando"
-                          @click="revisarSubsanacion(observacion, subsanacion, 'aceptada')"
-                        >
-                          {{ operacionEnCurso === `subsanacion-${subsanacion.id_subsanacion_documentaria}` ? 'Guardando…' : 'Aceptar' }}
-                        </button>
-                        <button
-                          type="button"
-                          class="reject"
-                          :disabled="estaGestionando"
-                          @click="revisarSubsanacion(observacion, subsanacion, 'rechazada')"
-                        >
-                          Rechazar
-                        </button>
-                      </div>
-                    </li>
-                  </ul>
-                  <p v-else class="muted">No hay subsanaciones presentadas.</p>
-                </li>
-              </ul>
-              <p v-else class="muted">Sin observaciones.</p>
-
-              <form v-if="puedeRegistrarObservacion(requisito)" class="review-form" @submit.prevent="registrarObservacion(requisito)">
-                <label>
-                  Detalle de la observación
-                  <textarea
-                    v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).detalle"
-                    :disabled="estaGestionando"
-                    rows="3"
-                    required
-                  ></textarea>
-                </label>
-                <fieldset :disabled="estaGestionando">
-                  <legend>Clasificación</legend>
-                  <label>
-                    <input
-                      v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).es_subsanable"
-                      type="radio"
-                      :name="`subsanable-${requisito.evaluacion.id_evaluacion_requisito}`"
-                      :value="true"
-                    >
-                    Subsanable
-                  </label>
-                  <label>
-                    <input
-                      v-model="formularioObservacion(requisito.evaluacion.id_evaluacion_requisito).es_subsanable"
-                      type="radio"
-                      :name="`subsanable-${requisito.evaluacion.id_evaluacion_requisito}`"
-                      :value="false"
-                    >
-                    No subsanable
-                  </label>
-                </fieldset>
-                <button type="submit" :disabled="estaGestionando">
+                <button
+                  v-if="requiereNotificarObservaciones"
+                  type="button"
+                  class="stitch-primary-action stitch-notify-action"
+                  :disabled="!puedeNotificarObservaciones || estaGestionando"
+                  @click="enviarEvaluacionCompleta(true)"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">notifications</span>
                   {{
-                    operacionEnCurso === `observacion-${requisito.evaluacion.id_evaluacion_requisito}`
-                      ? 'Registrando…'
-                      : 'Registrar observación'
+                    operacionEnCurso === 'evaluacion-completa'
+                      ? 'Notificando...'
+                      : 'Notificar observaciones'
                   }}
                 </button>
-              </form>
-            </template>
-            <p v-else class="muted">Sin evaluación registrada.</p>
-          </li>
-        </ul>
-        <p v-else-if="revision?.revision" class="muted">No hay requisitos activos para esta ronda.</p>
-      </section>
+                <button
+                  v-else
+                  type="button"
+                  class="stitch-primary-action"
+                  :disabled="!puedeSiguienteEtapa || estaGestionando"
+                  @click="enviarEvaluacionCompleta(false)"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
+                  {{
+                    operacionEnCurso === 'evaluacion-completa'
+                      ? 'Guardando...'
+                      : 'Siguiente etapa'
+                  }}
+                </button>
+                <p v-if="!todosEvaluados">
+                  Complete la evaluaci&#243;n de todos los requisitos.
+                </p>
+                <p v-else-if="!turnitinValido">
+                  Ingrese un porcentaje entero entre 0 y 100.
+                </p>
+                <p v-else-if="turnitinActual !== null && turnitinActual > 50">
+                  El porcentaje supera el 50%; notifique la observaci&#243;n al tesista.
+                </p>
+              </div>
+            </aside>
+          </div>
+        </section>
+      </template>
+
     </template>
   </section>
+
+
 </template>
 
 <style scoped>
@@ -1604,6 +1381,31 @@ legend {
     flex-direction: column;
   }
 }
+.stitch-requirement-main {
+  display: grid;
+  min-width: 0;
+  gap: var(--siset-space-2);
+}
+
+.stitch-observations-history article > div:first-child {
+  flex-wrap: wrap;
+}
+
+.stitch-file-row.is-new {
+  background: color-mix(in srgb, var(--siset-color-secondary) 12%, var(--siset-color-surface));
+  box-shadow: inset 3px 0 var(--siset-color-primary);
+}
+
+.stitch-new-file {
+  justify-self: start;
+  padding: 0.15rem 0.4rem;
+  color: var(--siset-color-on-primary);
+  font-size: 0.625rem;
+  font-weight: 700;
+  background: var(--siset-color-primary);
+  border-radius: var(--siset-radius-md);
+}
+
 </style>
 
 <style scoped>
@@ -1722,7 +1524,11 @@ legend {
 
 .documentation-status.is-ready {
   color: var(--siset-color-secondary);
-  background: color-mix(in srgb, var(--siset-color-secondary-container) 28%, var(--siset-color-surface));
+  background: color-mix(
+    in srgb,
+    var(--siset-color-secondary-container) 28%,
+    var(--siset-color-surface)
+  );
   border-left-color: var(--siset-color-secondary);
 }
 
@@ -1885,6 +1691,48 @@ legend {
 .conformity-primary-action:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.derivation-documents {
+  display: grid;
+  gap: var(--siset-space-2);
+  padding: var(--siset-space-4);
+  background: var(--siset-color-surface-container-low);
+  border: 1px solid var(--siset-color-border);
+  border-radius: var(--siset-radius-lg);
+}
+
+.derivation-documents .eyebrow {
+  margin: 0 0 var(--siset-space-1);
+}
+
+.derivation-document-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--siset-space-2);
+  width: 100%;
+  padding: var(--siset-space-3);
+  color: var(--siset-color-primary);
+  background: var(--siset-color-surface);
+  border: 1px solid var(--siset-color-border);
+  border-radius: var(--siset-radius-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.derivation-document-row small {
+  color: var(--siset-color-success, #006b5c);
+  font-weight: 800;
+}
+
+.derivation-document-row:disabled,
+.derivation-document-row:disabled small {
+  color: var(--siset-color-text-muted);
+}
+
+.derivation-document-row:disabled {
+  cursor: default;
 }
 
 .conformity-observations {
@@ -2192,7 +2040,7 @@ legend {
 
 .overview-details {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--siset-space-4);
   padding-top: var(--siset-space-4);
   border-top: 1px solid var(--siset-color-border);
@@ -2900,9 +2748,19 @@ legend {
 }
 
 .stitch-requirement h4 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--siset-space-3);
   margin: 0 0 var(--siset-space-1);
   color: var(--siset-color-text);
   font-size: var(--siset-font-size-md);
+}
+
+.stitch-correction-label {
+  color: var(--siset-color-error);
+  font-size: 0.6875rem;
+  font-weight: 600;
 }
 
 .stitch-requirement p {
@@ -3151,8 +3009,12 @@ legend {
   cursor: pointer;
 }
 
-.stitch-text-button.is-success { color: var(--siset-color-success); }
-.stitch-text-button.is-danger { color: var(--siset-color-error); }
+.stitch-text-button.is-success {
+  color: var(--siset-color-success);
+}
+.stitch-text-button.is-danger {
+  color: var(--siset-color-error);
+}
 
 .stitch-empty {
   padding: var(--siset-space-5);
@@ -3188,9 +3050,13 @@ legend {
   border-bottom: 1px solid var(--siset-color-border);
 }
 
-.stitch-file-row:last-child { border-bottom: 0; }
+.stitch-file-row:last-child {
+  border-bottom: 0;
+}
 
-.stitch-file-row > .material-symbols-outlined { color: var(--siset-color-error); }
+.stitch-file-row > .material-symbols-outlined {
+  color: var(--siset-color-error);
+}
 
 .stitch-file-row div {
   display: grid;
@@ -3205,8 +3071,14 @@ legend {
   white-space: nowrap;
 }
 
-.stitch-file-row strong { color: var(--siset-color-text); font-size: var(--siset-font-size-sm); }
-.stitch-file-row small { color: var(--siset-color-text-muted); font-size: var(--siset-font-size-xs); }
+.stitch-file-row strong {
+  color: var(--siset-color-text);
+  font-size: var(--siset-font-size-sm);
+}
+.stitch-file-row small {
+  color: var(--siset-color-text-muted);
+  font-size: var(--siset-font-size-xs);
+}
 
 .stitch-file-row button {
   display: grid;
@@ -3220,7 +3092,9 @@ legend {
   cursor: pointer;
 }
 
-.stitch-file-row button:hover { background: var(--siset-color-primary-container); }
+.stitch-file-row button:hover {
+  background: var(--siset-color-primary-container);
+}
 
 .stitch-review-status {
   display: grid;
@@ -3232,9 +3106,15 @@ legend {
   box-shadow: var(--siset-shadow-sm);
 }
 
-.stitch-review-status > header { justify-content: flex-start; }
-.stitch-review-status h3 { color: inherit; }
-.stitch-review-status > header .material-symbols-outlined { font-size: 1.5rem; }
+.stitch-review-status > header {
+  justify-content: flex-start;
+}
+.stitch-review-status h3 {
+  color: inherit;
+}
+.stitch-review-status > header .material-symbols-outlined {
+  font-size: 1.5rem;
+}
 
 .stitch-status-line,
 .stitch-turnitin-readout {
@@ -3245,7 +3125,9 @@ legend {
 }
 
 .stitch-status-line span,
-.stitch-turnitin-readout span { opacity: 0.8; }
+.stitch-turnitin-readout span {
+  opacity: 0.8;
+}
 
 .stitch-progress-track {
   height: 0.5rem;
@@ -3290,41 +3172,124 @@ legend {
   border-radius: var(--siset-radius-lg);
 }
 
-.stitch-percent-input input { border: 0; border-radius: 0; }
-.stitch-percent-input span { padding: 0 var(--siset-space-3); color: var(--siset-color-text-muted); }
-.stitch-turnitin-form p { color: var(--siset-color-text-muted); font-size: var(--siset-font-size-xs); }
-.stitch-turnitin-form .stitch-save-button { width: 100%; }
+.stitch-percent-input input {
+  border: 0;
+  border-radius: 0;
+}
+.stitch-percent-input span {
+  padding: 0 var(--siset-space-3);
+  color: var(--siset-color-text-muted);
+}
+.stitch-turnitin-form p {
+  color: var(--siset-color-text-muted);
+  font-size: var(--siset-font-size-xs);
+}
+.stitch-turnitin-form .stitch-save-button {
+  width: 100%;
+}
+
+.stitch-turnitin-observations {
+  display: grid;
+  gap: var(--siset-space-2);
+  padding-top: var(--siset-space-3);
+  border-top: 1px solid var(--siset-color-border);
+}
+
+.stitch-turnitin-observations article {
+  display: grid;
+  gap: var(--siset-space-2);
+  padding: var(--siset-space-3);
+  background: var(--siset-color-error-container);
+  border-left: 3px solid var(--siset-color-error);
+  border-radius: var(--siset-radius-md);
+}
+
+.stitch-turnitin-observation-heading,
+.stitch-turnitin-correction,
+.stitch-turnitin-correction > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--siset-space-2);
+}
+
+.stitch-turnitin-observation-heading span,
+.stitch-turnitin-correction > span {
+  color: var(--siset-color-text-muted);
+  font-size: var(--siset-font-size-xs);
+}
+
+.stitch-turnitin-correction {
+  flex-wrap: wrap;
+  padding-top: var(--siset-space-2);
+  border-top: 1px solid color-mix(in srgb, var(--siset-color-error) 20%, transparent);
+}
 
 .stitch-flow-actions {
   display: grid;
   gap: var(--siset-space-2);
 }
 
-.stitch-primary-action { width: 100%; min-height: 3rem; }
-.stitch-flow-actions p { color: var(--siset-color-text-muted); font-size: var(--siset-font-size-xs); text-align: center; }
+.stitch-primary-action {
+  width: 100%;
+  min-height: 3rem;
+}
+.stitch-flow-actions p {
+  color: var(--siset-color-text-muted);
+  font-size: var(--siset-font-size-xs);
+  text-align: center;
+}
 
 @media (max-width: 64rem) {
-  .stitch-review-layout { grid-template-columns: 1fr; }
-  .stitch-review-sidebar { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stitch-review-layout {
+    grid-template-columns: 1fr;
+  }
+  .stitch-review-sidebar {
+    position: static;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .stitch-review-status,
-  .stitch-flow-actions { grid-column: span 2; }
+  .stitch-flow-actions {
+    grid-column: span 2;
+  }
 }
 
 @media (max-width: 48rem) {
-  .stitch-review-header { align-items: stretch; flex-direction: column; }
-  .stitch-expediente-selector { min-width: 0; }
-  .stitch-review-header h2 { font-size: var(--siset-font-size-xl); }
-  .stitch-evaluation-form { grid-template-columns: 1fr; padding-left: 0; }
-  .stitch-save-button { width: 100%; }
+  .stitch-review-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .stitch-expediente-selector {
+    min-width: 0;
+  }
+  .stitch-review-header h2 {
+    font-size: var(--siset-font-size-xl);
+  }
+  .stitch-evaluation-form {
+    grid-template-columns: 1fr;
+    padding-left: 0;
+  }
+  .stitch-save-button {
+    width: 100%;
+  }
   .stitch-evaluation-readonly,
   .stitch-saved-comment,
   .stitch-observation-form,
-  .stitch-observations-history { margin-left: 0; padding-left: 0; }
+  .stitch-observations-history {
+    margin-left: 0;
+    padding-left: 0;
+  }
   .stitch-saved-comment,
-  .stitch-observation-form { padding: var(--siset-space-3); }
-  .stitch-review-sidebar { grid-template-columns: 1fr; }
+  .stitch-observation-form {
+    padding: var(--siset-space-3);
+  }
+  .stitch-review-sidebar {
+    grid-template-columns: 1fr;
+  }
   .stitch-review-status,
-  .stitch-flow-actions { grid-column: auto; }
+  .stitch-flow-actions {
+    grid-column: auto;
+  }
 }
 
 /* Final visual calibration for the compact Stitch review workspace. */
@@ -3501,8 +3466,13 @@ legend {
   margin-left: calc(2.15rem + var(--siset-space-3));
 }
 
-.stitch-evaluation-readonly { font-size: 0.6875rem; }
-.stitch-saved-comment { padding: var(--siset-space-2) var(--siset-space-3); font-size: 0.75rem; }
+.stitch-evaluation-readonly {
+  font-size: 0.6875rem;
+}
+.stitch-saved-comment {
+  padding: var(--siset-space-2) var(--siset-space-3);
+  font-size: 0.75rem;
+}
 
 .stitch-observation-form {
   gap: var(--siset-space-2);
@@ -3517,14 +3487,29 @@ legend {
   border-radius: var(--siset-radius-md);
 }
 
-.stitch-review-sidebar { gap: var(--siset-space-3); }
+.stitch-review-sidebar {
+  gap: var(--siset-space-3);
+}
 
-.stitch-side-card > header { padding: var(--siset-space-3) var(--siset-space-4); }
-.stitch-side-card h3 { font-family: var(--siset-font-body); font-size: 0.75rem; font-weight: 700; }
+.stitch-side-card > header {
+  padding: var(--siset-space-3) var(--siset-space-4);
+}
+.stitch-side-card h3 {
+  font-family: var(--siset-font-body);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
 
-.stitch-file-row { gap: var(--siset-space-2); padding: var(--siset-space-3) var(--siset-space-4); }
-.stitch-file-row strong { font-size: 0.6875rem; }
-.stitch-file-row small { font-size: 0.6875rem; }
+.stitch-file-row {
+  gap: var(--siset-space-2);
+  padding: var(--siset-space-3) var(--siset-space-4);
+}
+.stitch-file-row strong {
+  font-size: 0.6875rem;
+}
+.stitch-file-row small {
+  font-size: 0.6875rem;
+}
 
 .stitch-review-status {
   gap: var(--siset-space-3);
@@ -3532,15 +3517,37 @@ legend {
   background: var(--siset-color-primary-container);
 }
 
-.stitch-review-status h3 { font-family: var(--siset-font-body); font-size: 0.75rem; }
-.stitch-status-line, .stitch-turnitin-readout { font-size: 0.6875rem; }
-.stitch-progress-track { height: 0.375rem; }
+.stitch-review-status h3 {
+  font-family: var(--siset-font-body);
+  font-size: 0.75rem;
+}
+.stitch-status-line,
+.stitch-turnitin-readout {
+  font-size: 0.6875rem;
+}
+.stitch-progress-track {
+  height: 0.375rem;
+}
 
-.stitch-turnitin-form > div { display: grid; gap: var(--siset-space-2); padding: var(--siset-space-3) var(--siset-space-4) var(--siset-space-4); }
-.stitch-turnitin-form label { font-size: 0.6875rem; }
-.stitch-percent-input { border-radius: var(--siset-radius-md); }
-.stitch-percent-input input { min-height: 1.95rem; padding: 0.25rem var(--siset-space-2); font-size: 0.75rem; }
-.stitch-turnitin-form p { font-size: 0.6875rem; }
+.stitch-turnitin-form > div {
+  display: grid;
+  gap: var(--siset-space-2);
+  padding: var(--siset-space-3) var(--siset-space-4) var(--siset-space-4);
+}
+.stitch-turnitin-form label {
+  font-size: 0.6875rem;
+}
+.stitch-percent-input {
+  border-radius: var(--siset-radius-md);
+}
+.stitch-percent-input input {
+  min-height: 1.95rem;
+  padding: 0.25rem var(--siset-space-2);
+  font-size: 0.75rem;
+}
+.stitch-turnitin-form p {
+  font-size: 0.6875rem;
+}
 
 .stitch-primary-action {
   min-height: 2.5rem;
@@ -3550,17 +3557,220 @@ legend {
 }
 
 @media (max-width: 64rem) {
-  .stitch-review-layout { grid-template-columns: 1fr; }
-  .stitch-review-sidebar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stitch-review-layout {
+    grid-template-columns: 1fr;
+  }
+  .stitch-review-sidebar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 48rem) {
-  .stitch-review-header h2 { font-size: 1.375rem; }
-  .stitch-evaluation-form { padding-left: 0; }
+  .stitch-review-header h2 {
+    font-size: 1.375rem;
+  }
+  .stitch-evaluation-form {
+    padding-left: 0;
+  }
   .stitch-evaluation-readonly,
   .stitch-saved-comment,
   .stitch-observation-form,
-  .stitch-observations-history { margin-left: 0; }
-  .stitch-review-sidebar { grid-template-columns: 1fr; }
+  .stitch-observations-history {
+    margin-left: 0;
+  }
+  .stitch-review-sidebar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.subsanation-version-list {
+  display: grid;
+  gap: var(--siset-space-3);
+}
+
+.subsanation-version-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--siset-space-4);
+  padding: var(--siset-space-4);
+  background: var(--siset-color-surface);
+  border: 1px solid var(--siset-color-border);
+  border-left: 4px solid var(--siset-color-border-strong);
+  border-radius: var(--siset-radius-lg);
+}
+
+.subsanation-version-item.is-pending {
+  background: color-mix(in srgb, var(--siset-color-error-container) 48%, var(--siset-color-surface));
+  border-left-color: var(--siset-color-error);
+}
+
+.subsanation-version-icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  color: var(--siset-color-primary);
+  background: var(--siset-color-primary-container);
+  border-radius: var(--siset-radius-lg);
+}
+
+.subsanation-version-copy,
+.subsanation-version-copy > div {
+  display: flex;
+  align-items: center;
+  gap: var(--siset-space-2);
+}
+
+.subsanation-version-copy {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.subsanation-version-copy strong,
+.subsanation-version-copy p,
+.subsanation-version-copy small {
+  margin: 0;
+}
+
+.subsanation-version-copy p,
+.subsanation-version-copy small {
+  color: var(--siset-color-text-muted);
+}
+
+.version-label {
+  color: var(--siset-color-primary);
+  font-size: var(--siset-font-size-sm);
+  font-weight: 800;
+}
+
+.subsanation-version-open,
+.version-file-button,
+.version-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--siset-color-primary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.subsanation-version-open,
+.version-file-button {
+  width: 2.5rem;
+  height: 2.5rem;
+  background: var(--siset-color-primary-container);
+  border-radius: 50%;
+}
+
+.version-review {
+  display: grid;
+  gap: var(--siset-space-5);
+}
+
+.version-review-header,
+.version-review-layout,
+.corrected-version-card,
+.corrected-version-card > div {
+  display: flex;
+  align-items: center;
+  gap: var(--siset-space-4);
+}
+
+.version-review-header {
+  justify-content: space-between;
+}
+
+.version-review-header h2,
+.previous-error-card h3,
+.corrected-version-card h3 {
+  margin: 0;
+  color: var(--siset-color-text);
+}
+
+.version-back {
+  gap: var(--siset-space-1);
+  padding: 0;
+  margin-bottom: var(--siset-space-3);
+  font-weight: 700;
+}
+
+.version-review-layout {
+  align-items: stretch;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
+}
+
+.version-review-main,
+.version-review-panel {
+  display: grid;
+  align-content: start;
+  gap: var(--siset-space-4);
+}
+
+.previous-error-card,
+.corrected-version-card,
+.version-review-panel {
+  padding: var(--siset-space-5);
+  background: var(--siset-color-surface);
+  border: 1px solid var(--siset-color-border);
+  border-radius: var(--siset-radius-xl);
+  box-shadow: var(--siset-shadow-sm);
+}
+
+.previous-error-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--siset-space-3);
+  background: color-mix(in srgb, var(--siset-color-error-container) 55%, var(--siset-color-surface));
+  border-left: 4px solid var(--siset-color-error);
+}
+
+.previous-error-card > .material-symbols-outlined {
+  color: var(--siset-color-error);
+}
+
+.previous-error-card p,
+.corrected-version-card p {
+  margin: var(--siset-space-1) 0 0;
+  color: var(--siset-color-text-muted);
+}
+
+.corrected-version-card {
+  justify-content: space-between;
+}
+
+.corrected-version-card > div > .material-symbols-outlined {
+  color: var(--siset-color-primary);
+  font-size: 2rem;
+}
+
+.version-review-panel label {
+  display: grid;
+  gap: var(--siset-space-2);
+  font-weight: 700;
+}
+
+.version-review-actions {
+  display: grid;
+  gap: var(--siset-space-3);
+}
+
+.version-reject-action {
+  color: var(--siset-color-error);
+  border-color: var(--siset-color-error);
+}
+
+@media (max-width: 56rem) {
+  .version-review-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .version-review-header,
+  .corrected-version-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

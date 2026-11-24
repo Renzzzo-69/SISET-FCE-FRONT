@@ -24,14 +24,16 @@ const source = ts
   .outputText.replace('export {};', '')
 const rutas = []
 const setup = new Function(
+  'api',
   'computed',
   'ref',
   'onMounted',
   'useAuthStore',
   'useRouter',
-  `${source}\nreturn { detalle, puedeRegistrar, registrar };`,
+  `${source}\nreturn { detalle, puedeRegistrar, registrar, seleccionado, cargarDetalle, requisitos };`,
 )
 const view = setup(
+  { get: async (url) => ({ data: url === '/resoluciones' ? { data: [{ tipo_resolucion: 'aprobacion_proyecto', estado: 'vigente', numero_resolucion: 'RES 342', archivo_pdf: '/storage/resolucion.pdf' }] } : { data: { informes: [] } } }) },
   computed,
   ref,
   () => {},
@@ -67,3 +69,8 @@ assert.equal(view.puedeRegistrar.value, true, 'El segundo tesista puede registra
 view.detalle.value.informes = []
 assert.equal(view.puedeRegistrar.value, false, 'El registro requiere un proyecto previo')
 console.log('OK: habilitación, titularidad y acceso al registro de tesis final.')
+
+view.seleccionado.value = 6
+await view.cargarDetalle()
+assert.equal(view.requisitos.value[1].valor, 'RES 342')
+assert.equal(view.requisitos.value[1].conforme, true, 'La resolucion cargada no aparece como pendiente')
