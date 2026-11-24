@@ -4,7 +4,7 @@ import { parse } from '@vue/compiler-sfc'
 import { computed, ref } from 'vue'
 import ts from 'typescript'
 
-const { descriptor } = parse(readFileSync(new URL('../src/views/decanatura/AsignacionIndividualJurados.vue', import.meta.url), 'utf8'))
+const { descriptor } = parse(readFileSync(new URL('../src/views/UdiPropuestaJuradosView.vue', import.meta.url), 'utf8'))
 const source = ts.transpileModule(descriptor.scriptSetup.content, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   transformers: { before: [() => file => ts.factory.updateSourceFile(file, file.statements.filter(node => !ts.isImportDeclaration(node)))] },
@@ -52,8 +52,4 @@ assert.deepEqual(destino, { name: 'udi-jurados' })
 assert.deepEqual(view.seleccionados.value, {})
 assert.equal(view.archivoPropuesta.value, null)
 assert.equal(view.aviso.value, '')
-// Al compartir la vista, Decanatura vuelve a su propio listado.
-const vistaDecanatura = new Function('computed', 'ref', 'onMounted', 'useRoute', 'useRouter', `${source}\nreturn { cancelar };`)(computed, ref, () => {}, () => ({ name: 'decanatura-asignacion-individual' }), () => ({ push: async valor => { destino = valor } }))
-await vistaDecanatura.cancelar()
-assert.deepEqual(destino, { name: 'decanatura-asignacion' })
-console.log('OK: máximo tres casillas, cargos, liberación de selección y cancelación en UDI y Decanatura.')
+console.log('OK: tres jurados, cargos y cancelacion en UDI.');

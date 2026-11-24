@@ -28,7 +28,8 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const tokenActual = localStorage.getItem(AUTH_TOKEN_KEY)
+    if (error.response?.status === 401 && tokenActual && error.config?.headers?.Authorization === `Bearer ${tokenActual}`) {
       localStorage.removeItem(AUTH_TOKEN_KEY)
       onUnauthorized?.()
     }
@@ -97,12 +98,13 @@ export async function verDocumentoPrivado(ruta: string) {
     const urlTemporal = URL.createObjectURL(data)
     visor.location.replace(urlTemporal)
     window.setTimeout(() => URL.revokeObjectURL(urlTemporal), 300_000)
-  } catch (error: any) {
-    let mensaje = error?.response?.data?.message ?? error?.message ?? 'No se pudo abrir el informe.'
+  } catch (error: unknown) {
+    const datos = axios.isAxiosError(error) ? error.response?.data : undefined
+    let mensaje = datos?.message ?? (error instanceof Error ? error.message : 'No se pudo abrir el informe.')
 
-    if (error?.response?.data instanceof Blob) {
+    if (datos instanceof Blob) {
       try {
-        const contenido = await error.response.data.text()
+        const contenido = await datos.text()
         const respuesta = JSON.parse(contenido)
         mensaje = respuesta.message ?? mensaje
       } catch {
@@ -128,48 +130,17 @@ export async function verDocumentoPrivado(ruta: string) {
 }
 
 async function obtenerDocumentoBinario(url: URL): Promise<{ blob: Blob; nombre: string | null }> {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY)
-  const respuesta = await fetch(url.toString(), {
-    headers: {
-      Accept: 'application/octet-stream, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    cache: 'no-store',
-  })
-
-  if (respuesta.status === 401) {
-    localStorage.removeItem(AUTH_TOKEN_KEY)
-    onUnauthorized?.()
-  }
-
-  if (!respuesta.ok) {
-    let mensaje = `No se pudo obtener el documento (${respuesta.status}).`
-    try {
-      const error = await respuesta.json()
-      mensaje = error.message ?? mensaje
-    } catch {
-      // La respuesta no contiene un error JSON.
-    }
-    throw new Error(mensaje)
-  }
-
-  if (respuesta.headers.get('content-type')?.includes('application/json')) {
-    const documento = await respuesta.json()
+  const { data, headers } = await api.get<Blob>(url.toString(), { responseType: 'blob' })
+  if (data.type.includes('application/json')) {
+    const documento = JSON.parse(await data.text())
     const binario = atob(documento.contenido)
     const bytes = new Uint8Array(binario.length)
-    for (let indice = 0; indice < binario.length; indice += 1) {
-      bytes[indice] = binario.charCodeAt(indice)
-    }
-
-    return {
-      blob: new Blob([bytes], { type: documento.tipo }),
-      nombre: documento.nombre ?? null,
-    }
+    for (let indice = 0; indice < binario.length; indice += 1) bytes[indice] = binario.charCodeAt(indice)
+    return { blob: new Blob([bytes], { type: documento.tipo }), nombre: documento.nombre ?? null }
   }
-
-  const contenido = await respuesta.arrayBuffer()
-  const tipo = respuesta.headers.get('content-type')?.split(';')[0] || 'application/octet-stream'
-  const disposicion = respuesta.headers.get('content-disposition')
+  const contenido = await data.arrayBuffer()
+  const tipo = data.type || 'application/octet-stream'
+  const disposicion = String(headers['content-disposition'] ?? '')
   const coincidenciaUtf8 = disposicion?.match(/filename\*=UTF-8''([^;]+)/i)
   const coincidenciaSimple = disposicion?.match(/filename="?([^";]+)"?/i)
   const nombre = coincidenciaUtf8?.[1]

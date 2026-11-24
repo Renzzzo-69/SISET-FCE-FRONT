@@ -82,7 +82,7 @@ for (const rol of roles) {
   assert.equal(shell.cerrando.value, true)
 }
 assert(readFileSync(new URL('../public/images/fce-unsm.png', import.meta.url)).length > 0)
-for (const layout of ['AuthenticatedLayout', 'DocenteLayout', 'DecanaturaLayout', 'UdiLayout']) {
+for (const layout of ['AuthenticatedLayout', 'DocenteLayout', 'UdiLayout']) {
   assert.match(readFileSync(new URL(`../src/layouts/${layout}.vue`, import.meta.url), 'utf8'), /<AppShell/)
 }
 console.log('OK: cinco roles, rutas existentes, permisos del tesista, selección de detalles, menú móvil, cierre de sesión único y logo local.')

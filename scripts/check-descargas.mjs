@@ -11,13 +11,13 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
 }).outputText
 
-async function comprobar(disposition, mime, esperado) {
+async function comprobar(disposition, mime, esperado, contenido = 'documento') {
   const enlace = { click() {}, remove() {} }
   const api = {
     interceptors: { request: { use() {} }, response: { use() {} } },
     async get(url) {
       assert.equal(new URL(url).searchParams.get('download'), '1')
-      return { data: new Blob(['documento'], { type: mime }), headers: { 'content-disposition': disposition } }
+      return { data: new Blob([contenido], { type: mime }), headers: { 'content-disposition': disposition } }
     },
   }
   const descargar = new Function('axios', 'window', 'document', `${compiled}; return descargarDocumentoPrivado`)(
@@ -33,4 +33,10 @@ await comprobar('attachment; filename=EXP-0001-2026II_Proyecto_v1.pdf', 'applica
 await comprobar('attachment; filename="EXP-0001-2026II_Tesis_v2.docx"', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'EXP-0001-2026II_Tesis_v2.docx')
 await comprobar(undefined, 'application/pdf', 'respaldo.pdf')
 await comprobar(undefined, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'respaldo.docx')
+await comprobar("attachment; filename*=UTF-8''Resoluci%C3%B3n.docx", 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Resolución.docx')
+await comprobar(undefined, 'application/json', 'plantilla.docx', JSON.stringify({
+  contenido: btoa('PK documento'),
+  tipo: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  nombre: 'plantilla.docx',
+}))
 console.log('Descargas: nombre del servidor, PDF, DOCX y respaldo verificados.')
